@@ -6,7 +6,7 @@
 #include "UnrealCollaborationCharacter.h"
 #include "HorrorCharacter.generated.h"
 
-class USpotLightComponent;
+//class USpotLightComponent;
 class UInputAction;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FUpdateSprintMeterDelegate, float, Percentage);
@@ -23,7 +23,7 @@ class UNREALCOLLABORATION_API AHorrorCharacter : public AUnrealCollaborationChar
 
 	/** Player light source */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
-	USpotLightComponent* SpotLight;
+	//USpotLightComponent* SpotLight;
 	
 protected:
 
@@ -50,7 +50,7 @@ protected:
 
 	/** How long we can sprint for, in seconds */
 	UPROPERTY(EditAnywhere, Category="Sprint", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
-	float SprintTime = 3.0f;
+	float SprintTime = 6.0f;
 
 	/** Walk speed while sprinting */
 	UPROPERTY(EditAnywhere, Category="Sprint", meta = (ClampMin = 0, ClampMax = 10, Units = "cm/s"))
