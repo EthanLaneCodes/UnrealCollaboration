@@ -22,8 +22,8 @@ class UNREALCOLLABORATION_API AHorrorCharacter : public AUnrealCollaborationChar
 	GENERATED_BODY()
 
 	/** Player light source */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
-	//USpotLightComponent* SpotLight;
+	//UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	//USpotLightComponent* SpotLight; // ??
 	
 protected:
 
