@@ -21,9 +21,9 @@ public:
     }
     ~ViewportDraggableProxy() {}
     bool isOpaque() override { return false; }
-    bool startDrag(Vec2D mousePosition, float timeStamp = 0) override;
-    bool drag(Vec2D mousePosition, float timeStamp = 0) override;
-    bool endDrag(Vec2D mousePosition, float timeStamp = 0) override;
+    void startDrag(Vec2D mousePosition) override;
+    void drag(Vec2D mousePosition) override;
+    void endDrag(Vec2D mousePosition) override;
 };
 } // namespace rive
 

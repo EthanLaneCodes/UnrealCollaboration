@@ -2,12 +2,12 @@
 #define _RIVE_ARTBOARD_HPP_
 
 #include "rive/advance_flags.hpp"
-#include "rive/resetting_component.hpp"
 #include "rive/animation/linear_animation.hpp"
 #include "rive/animation/state_machine.hpp"
 #include "rive/core_context.hpp"
+#include "rive/data_bind/data_bind.hpp"
 #include "rive/data_bind/data_context.hpp"
-#include "rive/data_bind/data_bind_container.hpp"
+#include "rive/data_bind/data_bind_context.hpp"
 #include "rive/viewmodel/viewmodel_instance_value.hpp"
 #include "rive/viewmodel/viewmodel_instance_viewmodel.hpp"
 #include "rive/generated/artboard_base.hpp"
@@ -18,8 +18,6 @@
 #include "rive/event.hpp"
 #include "rive/audio/audio_engine.hpp"
 #include "rive/math/raw_path.hpp"
-#include "rive/typed_children.hpp"
-#include "rive/virtualizing_component.hpp"
 
 #include <queue>
 #include <unordered_set>
@@ -47,21 +45,12 @@ class SMIBool;
 class SMIInput;
 class SMINumber;
 class SMITrigger;
-class DataBind;
-class DataBindContainer;
 
 #ifdef WITH_RIVE_TOOLS
 typedef void (*ArtboardCallback)(void*);
-typedef uint8_t (*TestBoundsCallback)(void*, float, float, bool);
-typedef uint8_t (*IsAncestorCallback)(void*, uint16_t);
-typedef float (*RootTransformCallback)(void*, float, float, bool);
 #endif
 
-class Artboard : public ArtboardBase,
-                 public CoreContext,
-                 public Virtualizable,
-                 public ResettingComponent,
-                 public DataBindContainer
+class Artboard : public ArtboardBase, public CoreContext
 {
     friend class File;
     friend class ArtboardImporter;
@@ -78,7 +67,8 @@ private:
     std::vector<ArtboardComponentList*> m_ComponentLists;
     std::vector<ArtboardHost*> m_ArtboardHosts;
     std::vector<Joystick*> m_Joysticks;
-    std::vector<ResettingComponent*> m_Resettables;
+    std::vector<DataBind*> m_DataBinds;
+    std::vector<DataBind*> m_AllDataBinds;
     DataContext* m_DataContext = nullptr;
     bool m_ownsDataContext = false;
     bool m_JoysticksApplyBeforeUpdate = true;
@@ -89,11 +79,9 @@ private:
     bool m_IsInstance = false;
     bool m_FrameOrigin = true;
     std::unordered_set<LayoutComponent*> m_dirtyLayout;
-    bool m_isCleaningDirtyLayouts = false;
     float m_originalWidth = 0;
     float m_originalHeight = 0;
     bool m_updatesOwnLayout = true;
-    bool m_hostTransformMarkedDirty = false;
     Artboard* parentArtboard() const;
     ArtboardHost* m_host = nullptr;
     bool sharesLayoutWithHost() const;
@@ -105,10 +93,6 @@ private:
     // state machine controllers to sort their hittable components when they are
     // out of sync
     uint8_t m_drawOrderChangeCounter = 0;
-#ifdef WITH_RIVE_TOOLS
-    uint16_t m_artboardId = 0;
-#endif
-    const Artboard* m_artboardSource = nullptr;
 
 #ifdef EXTERNAL_RIVE_AUDIO_ENGINE
     rcp<AudioEngine> m_audioEngine;
@@ -116,11 +100,11 @@ private:
 
     void sortDependencies();
     void sortDrawOrder();
+    void updateDataBinds();
     void updateRenderPath() override;
     void update(ComponentDirt value) override;
 
 public:
-    void updateDataBinds(bool applyTargetToSource = true) override;
     void host(ArtboardHost* artboardHost);
     ArtboardHost* host() const;
 
@@ -129,10 +113,6 @@ public:
     {
         return worldTransform();
     }
-    Component* virtualizableComponent() override { return this; }
-    bool updatesOwnLayout() { return m_updatesOwnLayout; }
-    StatusCode onAddedClean(CoreContext* context) override;
-    void addDirtyDataBind(DataBind*) override;
 
 private:
 #ifdef TESTING
@@ -150,17 +130,6 @@ public:
     StatusCode initialize();
 
     Core* resolve(uint32_t id) const override;
-#ifdef WITH_RIVE_TOOLS
-    void artboardId(uint16_t id) { m_artboardId = id; }
-    uint16_t artboardId() const { return m_artboardId; }
-#endif
-
-    void artboardSource(const Artboard* artboard)
-    {
-        m_artboardSource = artboard;
-    }
-    const Artboard* artboardSource() const { return m_artboardSource; }
-    bool isAncestor(const Artboard* artboard);
 
     /// Find the id of a component in the artboard the object in the artboard.
     /// The artboard itself has id 0 so we use that as a flag for not found.
@@ -171,12 +140,6 @@ public:
     // EXPERIMENTAL -- for internal testing only for now.
     // DO NOT RELY ON THIS as it may change/disappear in the future.
     Core* hitTest(HitInfo*, const Mat2D&) override;
-
-    bool hitTestPoint(const Vec2D& position,
-                      bool skipOnUnclipped,
-                      bool isPrimaryHit) override;
-
-    Vec2D rootTransform(const Vec2D&);
 
     void onComponentDirty(Component* component);
 
@@ -195,13 +158,10 @@ public:
     void updateWorldTransform() override {}
 
     void markLayoutDirty(LayoutComponent* layoutComponent);
-    void markHostTransformDirty();
     void cleanLayout(LayoutComponent* layoutComponent);
 
     LayoutData* takeLayoutData();
     bool syncStyleChanges() override;
-    void syncStyleChangesWithUpdate(bool forceUpdate = false);
-    void calculateLayout();
     bool canHaveOverrides() override { return true; }
 
     bool advance(float elapsedSeconds,
@@ -212,7 +172,6 @@ public:
                          AdvanceFlags flags = AdvanceFlags::AdvanceNested |
                                               AdvanceFlags::Animate |
                                               AdvanceFlags::NewFrame);
-    void reset() override;
     uint8_t drawOrderChangeCounter() { return m_drawOrderChangeCounter; }
     Drawable* firstDrawable() { return m_FirstDrawable; };
 
@@ -232,12 +191,6 @@ public:
 #endif
 
     const std::vector<Core*>& objects() const { return m_Objects; }
-    template <typename T> TypedChildren<T> objects()
-    {
-        return TypedChildren<T>(
-            Span<Core*>(m_Objects.data(), m_Objects.size()));
-    }
-
     const std::vector<NestedArtboard*> nestedArtboards() const
     {
         return m_NestedArtboards;
@@ -246,6 +199,8 @@ public:
     {
         return m_ComponentLists;
     }
+    const std::vector<DataBind*> dataBinds() const { return m_DataBinds; }
+    const std::vector<DataBind*> allDataBinds() const { return m_AllDataBinds; }
     DataContext* dataContext() { return m_DataContext; }
     NestedArtboard* nestedArtboard(const std::string& name) const;
     NestedArtboard* nestedArtboardAtPath(const std::string& path) const;
@@ -257,22 +212,25 @@ public:
     float layoutX() const;
     float layoutY() const;
     AABB bounds() const;
-    AABB worldBounds() const override;
     Vec2D origin() const;
-    void xChanged() override;
-    void yChanged() override;
 
     // Can we hide these from the public? (they use playable)
     bool isTranslucent() const;
     bool isTranslucent(const LinearAnimation*) const;
     bool isTranslucent(const LinearAnimationInstance*) const;
     void dataContext(DataContext* dataContext);
-    void internalDataContext(DataContext* dataContext);
+    void internalDataContext(DataContext* dataContext, bool isRoot);
     void clearDataContext();
-    void unbind();
     void bindViewModelInstance(rcp<ViewModelInstance> viewModelInstance,
                                DataContext* parent);
+    void bindViewModelInstance(rcp<ViewModelInstance> viewModelInstance,
+                               DataContext* parent,
+                               bool isRoot);
     void bindViewModelInstance(rcp<ViewModelInstance> viewModelInstance);
+    void addDataBind(DataBind* dataBind);
+    void populateDataBinds(std::vector<DataBind*>* dataBinds);
+    void sortDataBinds();
+    void collectDataBinds();
 
     bool hasAudio() const;
 
@@ -316,20 +274,6 @@ public:
             }
         }
         return nullptr;
-    }
-
-    int objectIndex(Core* component) const
-    {
-        int count = 0;
-        for (auto object : m_Objects)
-        {
-            if (object == component)
-            {
-                return count;
-            }
-            count++;
-        }
-        return -1;
     }
 
     template <typename T = Component> std::vector<T*> find()
@@ -376,11 +320,6 @@ public:
         artboardClone->m_IsInstance = true;
         artboardClone->m_originalWidth = m_originalWidth;
         artboardClone->m_originalHeight = m_originalHeight;
-#ifdef WITH_RIVE_TOOLS
-        artboardClone->m_artboardId = m_artboardId;
-#endif
-        artboardClone->m_artboardSource =
-            isInstance() ? m_artboardSource : this;
         cloneObjectDataBinds(this, artboardClone.get(), artboardClone.get());
 
         std::vector<Core*>& cloneObjects = artboardClone->m_Objects;
@@ -471,10 +410,6 @@ private:
 #ifdef WITH_RIVE_TOOLS
     ArtboardCallback m_layoutChangedCallback = nullptr;
     ArtboardCallback m_layoutDirtyCallback = nullptr;
-    ArtboardCallback m_transformDirtyCallback = nullptr;
-    TestBoundsCallback m_testBoundsCallback = nullptr;
-    IsAncestorCallback m_isAncestorCallback = nullptr;
-    RootTransformCallback m_rootTransformCallback = nullptr;
 
 public:
     void* callbackUserData;
@@ -486,23 +421,6 @@ public:
     {
         m_layoutDirtyCallback = callback;
         addDirt(ComponentDirt::Components);
-    }
-    void onTransformDirty(ArtboardCallback callback)
-    {
-        m_transformDirtyCallback = callback;
-        addDirt(ComponentDirt::Components);
-    }
-    void onTestBounds(TestBoundsCallback callback)
-    {
-        m_testBoundsCallback = callback;
-    }
-    void onIsAncestor(IsAncestorCallback callback)
-    {
-        m_isAncestorCallback = callback;
-    }
-    void onRootTransform(RootTransformCallback callback)
-    {
-        m_rootTransformCallback = callback;
     }
 #endif
 };

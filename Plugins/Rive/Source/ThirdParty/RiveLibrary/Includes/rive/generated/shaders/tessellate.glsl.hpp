@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tessellate.glsl.exports.h"
+#include "tessellate.exports.h"
 
 namespace rive {
 namespace gpu {
@@ -132,17 +132,11 @@ VERTEX_MAIN(_EXPORTED_tessellateVertexMain, Attrs, attrs, _vertexID, _instanceID
     uint polarSegmentCount = (_EXPORTED_a_args.z >> 10) & 0x3ffu;
     uint joinSegmentCount = _EXPORTED_a_args.z >> 20;
     uint contourIDWithFlags = _EXPORTED_a_args.w;
-    uint contourID = contourIDWithFlags & CONTOUR_ID_MASK;
     uint pathID =
-        contourID > 0u
-            // Clamp contourID at 1, even though this is the <true> expression
-            // of "contourID > 0u", and even though GLSL specifies short-circuit
-            // evaluation for the ternary operator.
-            //
-            // PowerVR (B-Series BXM-8-256, build 1.15) appears to evaluate this
-            // expression unconditionally, leading to a load at buffer index
-            // 0xffffffff when contourID == 0, which crashes the render pass.
-            ? STORAGE_BUFFER_LOAD4(_EXPORTED_contourBuffer, max(contourID, 1u) - 1u).z
+        contourIDWithFlags != INVALID_CONTOUR_ID_WITH_FLAGS
+            ? STORAGE_BUFFER_LOAD4(_EXPORTED_contourBuffer,
+                                   contour_data_idx(contourIDWithFlags))
+                  .z
             : 0u;
     uint4 pathData = pathID != 0u
                          ? STORAGE_BUFFER_LOAD4(_EXPORTED_pathBuffer, pathID * 4u + 1u)
@@ -210,6 +204,7 @@ VERTEX_MAIN(_EXPORTED_tessellateVertexMain, Attrs, attrs, _vertexID, _instanceID
         float2x2 mat = make_float2x2(
             uintBitsToFloat(STORAGE_BUFFER_LOAD4(_EXPORTED_pathBuffer, pathID * 4u)));
         float2 d0 = MUL(mat, -2. * p1 + p2 + p0);
+
         float2 d1 = MUL(mat, -2. * p2 + p3 + p1);
         float m = max(dot(d0, d0), dot(d1, d1));
         float n = max(ceil(sqrt(.75 * 4. * sqrt(m))), 1.);
@@ -277,9 +272,6 @@ VERTEX_MAIN(_EXPORTED_tessellateVertexMain, Attrs, attrs, _vertexID, _instanceID
     float4 pos = pixel_coord_to_clip_coord(coord,
                                            2. / TESS_TEXTURE_WIDTH,
                                            uniforms.tessInverseViewportY);
-#ifdef _EXPORTED_POST_INVERT_Y
-    pos.y = -pos.y;
-#endif
 
     VARYING_PACK(v_p0p1);
     VARYING_PACK(v_p2p3);

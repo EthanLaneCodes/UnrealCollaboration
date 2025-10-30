@@ -6,14 +6,14 @@
 namespace rive
 {
 class StateMachineLayerComponent;
-class StateMachineFireAction;
+class StateMachineFireEvent;
 
 class StateMachineLayerComponentImporter : public ImportStackObject
 {
 public:
     StateMachineLayerComponentImporter(StateMachineLayerComponent* component);
 
-    void addFireEvent(StateMachineFireAction* fireEvent);
+    void addFireEvent(StateMachineFireEvent* fireEvent);
 
 private:
     StateMachineLayerComponent* m_stateMachineLayerComponent;

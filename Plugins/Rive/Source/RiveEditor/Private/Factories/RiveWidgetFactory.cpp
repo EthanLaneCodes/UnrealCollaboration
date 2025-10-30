@@ -15,6 +15,7 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Logs/RiveEditorLog.h"
+#include "Rive/RiveTextureObject.h"
 #include "Templates/WidgetTemplateClass.h"
 #include "UMG/RiveWidget.h"
 #include "UObject/SavePackage.h"
@@ -24,7 +25,9 @@
 #include "Components/CanvasPanel.h"
 #include "Rive/RiveFile.h"
 
+
 extern UNREALED_API class UEditorEngine* GEditor;
+
 
 #define LOCTEXT_NAMESPACE "FRiveWidgetFactory"
 
@@ -59,6 +62,8 @@ bool FRiveWidgetFactory::SaveAsset(UWidgetBlueprint* InWidgetBlueprint)
     }
 
     double StartTime = FPlatformTime::Seconds();
+
+    auto& MetaData = Package->GetMetaData();
 
     FSavePackageArgs SaveArgs;
 
@@ -102,8 +107,8 @@ bool FRiveWidgetFactory::CreateWidgetStructure(
             RiveWidget->RiveDescriptor =
                 FRiveDescriptor{RiveFile,
                                 "",
+                                0,
                                 "",
-                                false,
                                 ERiveFitType::Contain,
                                 ERiveAlignment::Center};
         }
@@ -202,6 +207,12 @@ bool FRiveWidgetFactory::Create()
         return false;
     }
 
+    if (!RiveFile->GetWidgetClass()->IsValidLowLevel())
+    {
+        RiveFile->SetWidgetClass(
+            TSubclassOf<UUserWidget>(NewBP->GeneratedClass));
+    }
+
     // Compile BP
     FCompilerResultsLog LogResults;
 
@@ -237,7 +248,7 @@ static void SpawnRiveWidgetActor(const FToolMenuContext& MenuContext)
 
                 if (NewActor)
                 {
-                    NewActor->SetWidgetClass(URiveWidget::StaticClass());
+                    NewActor->SetWidgetClass(RiveFile->GetWidgetClass());
                 }
             }
         }

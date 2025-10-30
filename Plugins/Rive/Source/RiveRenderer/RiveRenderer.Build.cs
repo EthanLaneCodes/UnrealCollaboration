@@ -47,8 +47,7 @@ public class RiveRenderer : ModuleRules
 				"Renderer",
 				"RiveLibrary",
 				"ImageWrapper",
-				"RiveShaders", 
-				"RiveStats"
+                "RiveShaders"
 			}
 		);
 

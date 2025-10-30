@@ -1,21 +1,22 @@
 #ifndef _RIVE_TEXT_VALUE_RUN_HPP_
 #define _RIVE_TEXT_VALUE_RUN_HPP_
 #include "rive/generated/text/text_value_run_base.hpp"
+#include "rive/animation/hittable.hpp"
 #include "rive/text/utf.hpp"
 #include "rive/math/rectangles_to_contour.hpp"
 
 namespace rive
 {
-class TextStylePaint;
+class TextStyle;
 class Text;
-class TextValueRun : public TextValueRunBase
+class TextValueRun : public TextValueRunBase, public Hittable
 {
     friend class HitTextRun;
 
 public:
     StatusCode onAddedClean(CoreContext* context) override;
     StatusCode onAddedDirty(CoreContext* context) override;
-    TextStylePaint* style() { return m_style; }
+    TextStyle* style() { return m_style; }
     Text* textComponent() const;
     uint32_t length()
     {
@@ -46,14 +47,11 @@ public:
     // adding hit rects (via addHitRect) again.
     void computeHitContours();
 
-    bool hitTestAABB(const Vec2D& position);
-    bool hitTestHiFi(const Vec2D& position, float hitRadius);
+    bool hitTestAABB(const Vec2D& position) override;
+    bool hitTestHiFi(const Vec2D& position, float hitRadius) override;
 
     bool isHitTarget() const { return m_isHitTarget; }
     void isHitTarget(bool value);
-    bool hitTestPoint(const Vec2D& position,
-                      bool skipOnUnclipped,
-                      bool isPrimaryHit) override;
 
 protected:
     void textChanged() override;
@@ -64,7 +62,7 @@ private:
     AABB m_localBounds;
     bool m_isHitTarget = false;
     std::vector<AABB> m_glyphHitRects;
-    TextStylePaint* m_style = nullptr;
+    TextStyle* m_style = nullptr;
     uint32_t m_length = -1;
     bool canHitTest() const;
 };

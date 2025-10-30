@@ -4,7 +4,6 @@
 #include "rive/data_bind/converters/data_converter.hpp"
 #include "rive/data_bind/data_bind.hpp"
 #include "rive/data_bind/data_values/data_value_number.hpp"
-#include "rive/data_bind/context/context_target_value.hpp"
 #include <stdio.h>
 namespace rive
 {
@@ -13,8 +12,8 @@ class DataBindContextValue
 protected:
     DataBind* m_dataBind = nullptr;
     DataValue* m_dataValue = nullptr;
-    DataBindContextTargetValue m_targetValue;
     bool m_isValid = false;
+    virtual DataValue* targetValue() { return nullptr; };
 
 public:
     DataBindContextValue(DataBind* dataBind);
@@ -30,7 +29,7 @@ public:
                                bool isMainDirection);
     virtual void apply(Core* component,
                        uint32_t propertyKey,
-                       bool isMainDirection) {};
+                       bool isMainDirection){};
     void invalidate() { m_isValid = false; };
     virtual bool syncTargetValue(Core* target, uint32_t propertyKey)
     {
@@ -73,20 +72,22 @@ public:
     template <typename T = DataValue,
               typename U,
               typename V = ViewModelInstanceValue>
-    void calculateValueAndApply(bool isMainDirection)
+    void calculateValueAndApply(DataValue* input,
+                                bool isMainDirection,
+                                DataBind* dataBind,
+                                Core* component,
+                                uint32_t propertyKey)
     {
         // Check if target value changed or binding has been invalidated
-        if (m_targetValue.syncTargetValue() || !m_isValid)
+        if (syncTargetValue(component, propertyKey) || !m_isValid)
         {
             // Calculate new value after converters are applied
-            auto value = calculateValue<T, U>(m_targetValue.dataValue(),
-                                              isMainDirection,
-                                              m_dataBind);
+            auto value = calculateValue<T, U>(input, isMainDirection, dataBind);
             // Apply value to source
-            m_dataBind->suppressDirt(true);
-            auto source = m_dataBind->source();
+            dataBind->suppressDirt(true);
+            auto source = dataBind->source();
             source->as<V>()->propertyValue(value);
-            m_dataBind->suppressDirt(false);
+            dataBind->suppressDirt(false);
             m_isValid = true;
         }
     };

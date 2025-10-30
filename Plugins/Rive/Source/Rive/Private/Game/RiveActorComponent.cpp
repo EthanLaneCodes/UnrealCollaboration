@@ -3,16 +3,16 @@
 #include "Game/RiveActorComponent.h"
 
 #include "GameFramework/Actor.h"
+#include "IRiveRenderer.h"
 #include "IRiveRendererModule.h"
 #include "Logs/RiveLog.h"
 #include "Rive/RiveArtboard.h"
 #include "Rive/RiveDescriptor.h"
 #include "Rive/RiveFile.h"
 #include "Rive/RiveTexture.h"
-#include "RiveRenderer.h"
 #include "Stats/RiveStats.h"
 
-struct FRiveStateMachine;
+class FRiveStateMachine;
 
 constexpr rive::ColorInt Cyan = 0xFF00FFFF;
 constexpr rive::ColorInt Magenta = 0xFFFF00FF;
@@ -149,41 +149,79 @@ void URiveActorComponent::TickComponent(
                                 STAT_RIVEACTORCOMPONENT_TICK,
                                 STATGROUP_Rive);
 
-    FRiveCommandBuilder& CommandBuilder =
-        IRiveRendererModule::Get().GetRenderer()->GetCommandBuilder();
-
     if (RiveRenderTarget)
     {
         for (URiveArtboard* Artboard : Artboards)
         {
+            RiveRenderTarget->Save();
             Artboard->Tick(DeltaTime);
-            Artboard->DrawToRenderTarget(CommandBuilder, RiveRenderTarget);
+            RiveRenderTarget->Restore();
         }
+
+        RiveRenderTarget->SubmitAndClear();
     }
 }
 
 void URiveActorComponent::Initialize()
 {
-    FRiveRenderer* RiveRenderer = IRiveRendererModule::Get().GetRenderer();
-
-    if (!ensure(RiveRenderer))
-        return;
-
-    RiveTexture = NewObject<URiveTexture>();
-    RiveRenderTarget = RiveRenderer->CreateRenderTarget("", RiveTexture);
-    RiveTexture->ResizeRenderTargets(FIntPoint(Size.X, Size.Y));
-
-    if (DefaultRiveDescriptor.RiveFile)
+    IRiveRenderer* RiveRenderer = IRiveRendererModule::Get().GetRenderer();
+    if (!RiveRenderer)
     {
-        URiveArtboard* Artboard =
-            AddArtboard(DefaultRiveDescriptor.RiveFile,
-                        DefaultRiveDescriptor.ArtboardName,
-                        DefaultRiveDescriptor.StateMachineName);
+        UE_LOG(LogRive,
+               Error,
+               TEXT("RiveRenderer is null, unable to initialize the "
+                    "RenderTarget for Rive file '%s'"),
+               *GetFullNameSafe(this));
+        return;
     }
 
-    InitializeAudioEngine();
+    RiveRenderer->CallOrRegister_OnInitialized(
+        IRiveRenderer::FOnRendererInitialized::FDelegate::CreateUObject(
+            this,
+            &URiveActorComponent::RiveReady));
+}
 
-    OnRiveReady.Broadcast();
+void URiveActorComponent::RenderRiveTest()
+{
+    if (!RiveTexture)
+    {
+        UE_LOG(LogRive, Error, TEXT("RiveRenderTest, RiveTexture not init"));
+        return;
+    }
+
+    if (!IRiveRendererModule::IsAvailable())
+    {
+        UE_LOG(LogRive,
+               Error,
+               TEXT("RiveRenderTest, Rive Renderer Module is either missing or "
+                    "not loaded properly."));
+        return;
+    }
+
+    IRiveRenderer* RiveRenderer = IRiveRendererModule::Get().GetRenderer();
+
+    if (!RiveRenderer)
+    {
+        UE_LOG(LogRive,
+               Error,
+               TEXT("Failed to RiveRenderTest, as we do not have a valid "
+                    "renderer."));
+        return;
+    }
+
+    if (!RiveRenderer->IsInitialized())
+    {
+        UE_LOG(LogRive,
+               Error,
+               TEXT("Could not RiveRenderTest,  as the required Rive Renderer "
+                    "is not initialized."));
+        return;
+    }
+
+    RiveRenderTarget->RegisterRenderCommand(
+        [Size = this->Size](rive::Factory* factory, rive::Renderer* renderer) {
+            DrawDefaultTest(factory, renderer, Size);
+        });
 }
 
 void URiveActorComponent::ResizeRenderTarget(int32 InSizeX, int32 InSizeY)
@@ -208,10 +246,26 @@ URiveArtboard* URiveActorComponent::AddArtboard(
                TEXT("Can't instantiate an artboard without a valid RiveFile."));
         return nullptr;
     }
+    if (!InRiveFile->IsInitialized())
+    {
+        UE_LOG(LogRive,
+               Error,
+               TEXT("Can't instantiate an artboard a RiveFile that is not "
+                    "initialized!"));
+        return nullptr;
+    }
 
-    check(IRiveRendererModule::IsAvailable());
+    if (!IRiveRendererModule::IsAvailable())
+    {
+        UE_LOG(LogRive,
+               Error,
+               TEXT("Could not load rive file as the required Rive Renderer "
+                    "Module is either "
+                    "missing or not loaded properly."));
+        return nullptr;
+    }
 
-    FRiveRenderer* RiveRenderer = IRiveRendererModule::Get().GetRenderer();
+    IRiveRenderer* RiveRenderer = IRiveRendererModule::Get().GetRenderer();
 
     if (!RiveRenderer)
     {
@@ -224,23 +278,20 @@ URiveArtboard* URiveActorComponent::AddArtboard(
         return nullptr;
     }
 
-    auto Definition = InRiveFile->GetArtboardDefinition(InArtboardName);
-    if (!Definition)
+    if (!RiveRenderer->IsInitialized())
     {
         UE_LOG(LogRive,
                Error,
-               TEXT("Artboard '%s' not found in Rive file '%s'."),
-               *InArtboardName,
-               *InRiveFile->GetName())
+               TEXT("Could not load rive file as the required Rive Renderer is "
+                    "not initialized."));
         return nullptr;
     }
 
     URiveArtboard* Artboard = NewObject<URiveArtboard>();
     Artboard->Initialize(InRiveFile,
-                         *Definition,
-                         false,
-                         RiveRenderer->GetCommandBuilder());
-
+                         RiveRenderTarget,
+                         InArtboardName,
+                         InStateMachineName);
     Artboards.Add(Artboard);
 
     if (RiveAudioEngine != nullptr)
@@ -301,10 +352,13 @@ void URiveActorComponent::PostEditChangeChainProperty(
              ->GetName();
 
     if (PropertyName == GET_MEMBER_NAME_CHECKED(FRiveDescriptor, RiveFile) ||
+        PropertyName ==
+            GET_MEMBER_NAME_CHECKED(FRiveDescriptor, ArtboardIndex) ||
         PropertyName == GET_MEMBER_NAME_CHECKED(FRiveDescriptor, ArtboardName))
     {
         TArray<FString> ArtboardNames = GetArtboardNamesForDropdown();
         if (ArtboardNames.Num() > 0 &&
+            DefaultRiveDescriptor.ArtboardIndex == 0 &&
             (DefaultRiveDescriptor.ArtboardName.IsEmpty() ||
              !ArtboardNames.Contains(DefaultRiveDescriptor.ArtboardName)))
         {
@@ -314,52 +368,72 @@ void URiveActorComponent::PostEditChangeChainProperty(
         TArray<FString> StateMachineNames = GetStateMachineNamesForDropdown();
         if (StateMachineNames.Num() == 1)
         {
-            DefaultRiveDescriptor.StateMachineName = StateMachineNames[0];
+            DefaultRiveDescriptor.StateMachineName =
+                StateMachineNames[0]; // No state machine, use blank
         }
         else if (DefaultRiveDescriptor.StateMachineName.IsEmpty() ||
                  !StateMachineNames.Contains(
-                     DefaultRiveDescriptor.StateMachineName) &&
-                     !StateMachineNames.IsEmpty())
+                     DefaultRiveDescriptor.StateMachineName))
         {
-            DefaultRiveDescriptor.StateMachineName = StateMachineNames[0];
+            DefaultRiveDescriptor.StateMachineName = StateMachineNames[1];
         }
     }
 }
 #endif
 
+void URiveActorComponent::OnResourceInitialized_RenderThread(
+    FRHICommandListImmediate& RHICmdList,
+    FTextureRHIRef& NewResource)
+{
+    // When the resource change, we need to tell the Render Target otherwise we
+    // will keep on drawing on an outdated RT
+    if (const TSharedPtr<IRiveRenderTarget> RTarget =
+            RiveRenderTarget) // todo: might need a lock
+    {
+        RTarget->CacheTextureTarget_RenderThread(RHICmdList, NewResource);
+    }
+}
+
+void URiveActorComponent::OnDefaultArtboardTickRender(float DeltaTime,
+                                                      URiveArtboard* InArtboard)
+{
+    InArtboard->Align(DefaultRiveDescriptor.FitType,
+                      DefaultRiveDescriptor.Alignment,
+                      DefaultRiveDescriptor.ScaleFactor);
+    InArtboard->Draw();
+}
+
 TArray<FString> URiveActorComponent::GetArtboardNamesForDropdown() const
 {
-    if (DefaultRiveDescriptor.RiveFile &&
-        IsValid(DefaultRiveDescriptor.RiveFile))
+    TArray<FString> Output;
+    if (DefaultRiveDescriptor.RiveFile)
     {
-        TArray<FString> Output;
-
-        for (auto Definition :
-             DefaultRiveDescriptor.RiveFile->ArtboardDefinitions)
+        for (URiveArtboard* Artboard :
+             DefaultRiveDescriptor.RiveFile->Artboards)
         {
-            Output.Add(Definition.Name);
+            Output.Add(Artboard->GetArtboardName());
         }
-
-        return Output;
     }
-    return {""};
+    return Output;
 }
 
 TArray<FString> URiveActorComponent::GetStateMachineNamesForDropdown() const
 {
+    TArray<FString> Output{""};
     if (DefaultRiveDescriptor.RiveFile)
     {
-        for (auto Definition :
-             DefaultRiveDescriptor.RiveFile->ArtboardDefinitions)
+        for (URiveArtboard* Artboard :
+             DefaultRiveDescriptor.RiveFile->Artboards)
         {
-            if (Definition.Name.Equals(DefaultRiveDescriptor.ArtboardName))
+            if (Artboard->GetArtboardName().Equals(
+                    DefaultRiveDescriptor.ArtboardName))
             {
-                return Definition.StateMachineNames;
+                Output.Append(Artboard->GetStateMachineNames());
+                break;
             }
         }
     }
-
-    return {};
+    return Output;
 }
 
 void URiveActorComponent::InitializeAudioEngine()
@@ -403,4 +477,34 @@ void URiveActorComponent::InitializeAudioEngine()
             }
         }
     }
+}
+
+void URiveActorComponent::RiveReady(IRiveRenderer* InRiveRenderer)
+{
+    RiveTexture = NewObject<URiveTexture>();
+    // Initialize Rive Render Target Only after we resize the texture
+    RiveRenderTarget =
+        InRiveRenderer->CreateTextureTarget_GameThread(GetFName(), RiveTexture);
+    RiveRenderTarget->SetClearColor(FLinearColor::White);
+    RiveTexture->ResizeRenderTargets(FIntPoint(Size.X, Size.Y));
+    RiveRenderTarget->Initialize();
+
+    RiveTexture->OnResourceInitializedOnRenderThread.AddUObject(
+        this,
+        &URiveActorComponent::OnResourceInitialized_RenderThread);
+
+    if (DefaultRiveDescriptor.RiveFile)
+    {
+        URiveArtboard* Artboard =
+            AddArtboard(DefaultRiveDescriptor.RiveFile,
+                        DefaultRiveDescriptor.ArtboardName,
+                        DefaultRiveDescriptor.StateMachineName);
+        Artboard->OnArtboardTick_Render.BindDynamic(
+            this,
+            &URiveActorComponent::OnDefaultArtboardTickRender);
+    }
+
+    InitializeAudioEngine();
+
+    OnRiveReady.Broadcast();
 }

@@ -8,7 +8,6 @@ namespace rive
 class BlendState1DViewModel : public BlendState1DViewModelBase
 {
 public:
-    ~BlendState1DViewModel();
     StatusCode import(ImportStack& importStack) override;
 
     BindableProperty* bindableProperty() const { return m_bindableProperty; };

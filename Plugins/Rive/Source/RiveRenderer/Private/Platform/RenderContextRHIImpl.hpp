@@ -7,11 +7,9 @@
 #include "Containers/DynamicRHIResourceArray.h"
 #include "Logs/RiveRendererLog.h"
 #include <RiveShaders/Public/RiveShaderTypes.h>
-#include "UnrealClient.h"
 
 THIRD_PARTY_INCLUDES_START
 #undef PI
-#include "rive/shapes/paint/image_sampler.hpp"
 #include "rive/renderer/rive_renderer.hpp"
 #include "rive/renderer/rive_render_image.hpp"
 #include "rive/renderer/buffer_ring.hpp"
@@ -35,45 +33,7 @@ public:
                     const RHICapabilities& Capabilities,
                     const FTextureRHIRef& InTextureTarget);
 
-    RenderTargetRHI(FRHICommandList& RHICmdList,
-                    const RHICapabilities& Capabilities,
-                    FRenderTarget* InTextureTarget);
-
-    RenderTargetRHI(FRDGBuilder& GraphBuilder,
-                    const RHICapabilities& Capabilities,
-                    FRDGTextureRef InTextureTarget);
-
     virtual ~RenderTargetRHI() override {}
-
-    // we don't want to re-create the backing textures to this every frame, so
-    // instead just add the ability to update the target texture instead and
-    // only update the backing texture if the sizes change
-    void updateTargetTexture(FRDGTextureRef InTextureTarget)
-    {
-        check(InTextureTarget->Desc.Extent.X == width() &&
-              InTextureTarget->Desc.Extent.Y == height());
-        m_rdgTextureTarget = InTextureTarget;
-        m_targetTextureSupportsUAV = static_cast<bool>(
-            m_rdgTextureTarget->Desc.Flags & ETextureCreateFlags::UAV);
-
-        m_targetTextureSupportsRenderTarget =
-            static_cast<bool>(m_rdgTextureTarget->Desc.Flags &
-                              ETextureCreateFlags::RenderTargetable);
-    }
-
-    void updateTargetTexture(FRenderTarget* InTextureTarget)
-    {
-        check(InTextureTarget->GetSizeXY().X == width() &&
-              InTextureTarget->GetSizeXY().Y == height());
-        m_renderTarget = InTextureTarget;
-        const auto rhiTexture = m_renderTarget->GetRenderTargetTexture();
-        m_targetTextureSupportsUAV = static_cast<bool>(
-            rhiTexture->GetDesc().Flags & ETextureCreateFlags::UAV);
-
-        m_targetTextureSupportsRenderTarget =
-            static_cast<bool>(rhiTexture->GetDesc().Flags &
-                              ETextureCreateFlags::RenderTargetable);
-    }
 
     // RDG Interface, RDG objects can not be cached so register the RHI textures
     // as "external resources" instead and return that per logic flush / Graph
@@ -81,32 +41,21 @@ public:
 
     FRDGTextureRef targetTexture(FRDGBuilder& Builder);
 
-    // Used when the target texture does not support UAVs
-    FRDGTextureRef backBufferTexture(FRDGBuilder& Builder);
-
     FRDGTextureRef clipTexture(FRDGBuilder& Builder);
-#if PLATFORM_APPLE
-    FRDGBufferRef coverageBuffer(FRDGBuilder& Builder);
-#endif
+
     FRDGTextureRef coverageTexture(FRDGBuilder& Builder);
 
     bool TargetTextureSupportsUAV() const { return m_targetTextureSupportsUAV; }
-    bool TargetTextureSupportsRenderTarget() const
-    {
-        return m_targetTextureSupportsRenderTarget;
-    }
 
     FTextureRHIRef texture() const { return m_textureTarget; }
 
 private:
-    FRenderTarget* m_renderTarget = nullptr;
-    FRDGTextureRef m_rdgTextureTarget = nullptr;
-    FTextureRHIRef m_textureTarget = nullptr;
-    FTextureRHIRef m_atomicCoverageTexture = nullptr;
-    FTextureRHIRef m_clipTexture = nullptr;
+    FTextureRHIRef m_scratchColorTexture;
+    FTextureRHIRef m_textureTarget;
+    FTextureRHIRef m_atomicCoverageTexture;
+    FTextureRHIRef m_clipTexture;
 
     bool m_targetTextureSupportsUAV;
-    bool m_targetTextureSupportsRenderTarget;
     // Reference held for convenience. May be better to just DI it everywhere.
     const RHICapabilities& m_capabilities;
 };
@@ -301,39 +250,14 @@ class RIVERENDERER_API RenderContextRHIImpl
     : public rive::gpu::RenderContextImpl
 {
 public:
-    struct RHICapabilitiesOverrides
-    {
-        bool bSupportsPixelShaderUAVs = true;
-        bool bSupportsTypedUAVLoads = true;
-#if PLATFORM_APPLE
-        bool bSupportsRasterOrderViews = true;
-#else
-        bool bSupportsRasterOrderViews = false;
-#endif
-    };
-
     static std::unique_ptr<rive::gpu::RenderContext> MakeContext(
-        FRHICommandListImmediate& CommandListImmediate,
-        const RHICapabilitiesOverrides& Overrides);
+        FRHICommandListImmediate& CommandListImmediate);
 
-    static rive::rcp<rive::RenderImage> MakeExternalRenderImage(
-        const FTextureRHIRef& InTargetTexture);
-
-    RenderContextRHIImpl(FRHICommandListImmediate& CommandListImmediate,
-                         const RHICapabilitiesOverrides& Overrides);
-#if WITH_EDITOR
-    void updateFromInterlockCVar(int32 CVar);
-#endif
-    rive::rcp<RenderTargetRHI> makeRenderTarget(
-        FRHICommandListImmediate& RHICmdList,
-        const FTextureRHIRef& InTargetTexture);
+    RenderContextRHIImpl(FRHICommandListImmediate& CommandListImmediate);
 
     rive::rcp<RenderTargetRHI> makeRenderTarget(
         FRHICommandListImmediate& RHICmdList,
-        FRenderTarget* InTargetTexture);
-
-    rive::rcp<RenderTargetRHI> makeRenderTarget(FRDGBuilder& GraphBuilder,
-                                                FRDGTextureRef InTargetTexture);
+        const FTextureRHIRef& InTargetTexture);
 
     virtual double secondsNow() const override
     {
@@ -416,9 +340,8 @@ private:
     FBufferRHIRef m_imageRectIndexBuffer;
     FBufferRHIRef m_tessSpanIndexBuffer;
 
-    FSamplerStateRHIRef
-        m_imageSamplers[rive::ImageSampler::MAX_SAMPLER_PERMUTATIONS];
     FSamplerStateRHIRef m_linearSampler;
+    FSamplerStateRHIRef m_mipmapSampler;
     FSamplerStateRHIRef m_atlasSampler;
     FSamplerStateRHIRef m_featherSampler;
 
@@ -443,7 +366,4 @@ private:
         std::chrono::steady_clock::now();
 
     RHICapabilities m_capabilities;
-#if WITH_EDITOR
-    rive::gpu::PlatformFeatures m_originalPlatformFeatures;
-#endif
 };

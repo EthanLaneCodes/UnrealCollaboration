@@ -10,13 +10,13 @@ class AudioEvent : public AudioEventBase, public FileAssetReferencer
 {
 public:
     StatusCode import(ImportStack& importStack) override;
-    void setAsset(rcp<FileAsset> asset) override;
+    void setAsset(FileAsset* asset) override;
     uint32_t assetId() override;
     void trigger(const CallbackData& value) override;
     void play();
 
 #ifdef TESTING
-    AudioAsset* asset() const;
+    AudioAsset* asset() const { return (AudioAsset*)m_fileAsset; }
 #endif
     Core* clone() const override;
 };

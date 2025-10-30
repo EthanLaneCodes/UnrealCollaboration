@@ -44,6 +44,4 @@ public:
     virtual EReimportResult::Type Reimport(UObject* Obj) override;
     virtual int32 GetPriority() const override;
     //~ END : FReimportHandler Interface
-private:
-    FDelegateHandle OnDataReadyHandle;
 };

@@ -14,9 +14,7 @@ private:
     float m_target = 0;
     float m_current = 0;
     float m_speed = 0;
-    float m_snapTarget = NAN;
-    float m_runRangeMin = 0;
-    float m_runRangeMax = 0;
+    float m_runRange = 0;
     bool m_isRunning = false;
 
 public:
@@ -30,13 +28,11 @@ public:
     }
 
     bool isRunning() { return m_isRunning; }
-    float clamp(float rangeMin, float rangeMax, float value);
+    float clamp(float range, float value);
     void run(float acceleration,
-             float rangeMin,
-             float rangeMax,
+             float range,
              float value,
-             std::vector<float> snappingPoints,
-             float contentSize);
+             std::vector<float> snappingPoints);
     float advance(float elapsedSeconds);
 };
 
@@ -58,12 +54,10 @@ public:
                (m_physicsY != nullptr && m_physicsY->isRunning());
     }
     Vec2D advance(float elapsedSeconds) override;
-    Vec2D clamp(Vec2D rangeMin, Vec2D rangeMax, Vec2D value) override;
-    void run(Vec2D rangeMin,
-             Vec2D rangeMax,
+    Vec2D clamp(Vec2D range, Vec2D value) override;
+    void run(Vec2D range,
              Vec2D value,
-             std::vector<Vec2D> snappingPoints,
-             float contentSize) override;
+             std::vector<Vec2D> snappingPoints) override;
     void prepare(DraggableConstraintDirection dir) override;
     void reset() override;
 };

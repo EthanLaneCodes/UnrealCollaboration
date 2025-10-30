@@ -18,7 +18,7 @@ public:
     }
 
     rcp<gpu::Texture> refTexture() const { return m_texture; }
-    gpu::Texture* getTexture() { return m_texture.get(); }
+    const gpu::Texture* getTexture() const { return m_texture.get(); }
 
 protected:
     RiveRenderImage(int width, int height)

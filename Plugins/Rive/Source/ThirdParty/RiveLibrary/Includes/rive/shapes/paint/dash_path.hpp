@@ -33,7 +33,6 @@ protected:
 
 public:
     float pathLength() const;
-    virtual ~PathDasher() {}
 };
 
 class DashPath : public DashPathBase, public PathDasher, public StrokeEffect

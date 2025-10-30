@@ -40,23 +40,11 @@ void FRiveFileAssetTypeActions::OpenAssetEditor(
     {
         if (URiveFile* RiveFile = Cast<URiveFile>(Obj))
         {
-            auto Lamda =
-                [EditWithinLevelEditor](TObjectPtr<URiveFile> RiveFile) {
-                    const TSharedRef<FRiveFileEditor> EditorToolkit =
-                        MakeShared<FRiveFileEditor>();
-                    EditorToolkit->Initialize(RiveFile,
-                                              EToolkitMode::Standalone,
-                                              EditWithinLevelEditor);
-                };
-
-            if (RiveFile->GetHasData())
-            {
-                Lamda(RiveFile);
-            }
-            else
-            {
-                RiveFile->OnDataReady.AddLambda(Lamda);
-            }
+            const TSharedRef<FRiveFileEditor> EditorToolkit =
+                MakeShared<FRiveFileEditor>();
+            EditorToolkit->Initialize(RiveFile,
+                                      EToolkitMode::Standalone,
+                                      EditWithinLevelEditor);
         }
     }
 }

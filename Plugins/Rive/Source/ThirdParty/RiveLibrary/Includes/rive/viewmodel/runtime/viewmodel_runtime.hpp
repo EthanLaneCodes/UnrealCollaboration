@@ -18,7 +18,7 @@ struct PropertyData
     std::string name;
 };
 
-class ViewModelRuntime : public RefCnt<ViewModelRuntime>
+class ViewModelRuntime
 {
 
 public:
@@ -27,11 +27,11 @@ public:
     const std::string& name() const;
     size_t instanceCount() const;
     size_t propertyCount() const;
-    rcp<ViewModelInstanceRuntime> createInstanceFromIndex(size_t index) const;
-    rcp<ViewModelInstanceRuntime> createInstanceFromName(
+    ViewModelInstanceRuntime* createInstanceFromIndex(size_t index) const;
+    ViewModelInstanceRuntime* createInstanceFromName(
         const std::string& name) const;
-    rcp<ViewModelInstanceRuntime> createDefaultInstance() const;
-    rcp<ViewModelInstanceRuntime> createInstance() const;
+    ViewModelInstanceRuntime* createDefaultInstance() const;
+    ViewModelInstanceRuntime* createInstance() const;
     std::vector<PropertyData> properties();
     static std::vector<PropertyData> buildPropertiesData(
         std::vector<rive::ViewModelProperty*>& properties);
@@ -40,7 +40,9 @@ public:
 private:
     ViewModel* m_viewModel;
     const File* m_file;
-    rcp<ViewModelInstanceRuntime> createRuntimeInstance(
+    mutable std::vector<rcp<ViewModelInstanceRuntime>>
+        m_viewModelInstanceRuntimes;
+    ViewModelInstanceRuntime* createRuntimeInstance(
         rcp<ViewModelInstance> instance) const;
 };
 } // namespace rive

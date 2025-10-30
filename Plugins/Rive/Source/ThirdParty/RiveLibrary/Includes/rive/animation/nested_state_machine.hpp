@@ -24,14 +24,10 @@ public:
     void initializeAnimation(ArtboardInstance*) override;
     StateMachineInstance* stateMachineInstance();
 
-    HitResult pointerMove(Vec2D position,
-                          float timeStamp = 0,
-                          int pointerId = 0);
-    HitResult pointerDown(Vec2D position, int pointerId = 0);
-    HitResult pointerUp(Vec2D position, int pointerId = 0);
-    HitResult pointerExit(Vec2D position, int pointerId = 0);
-    HitResult dragStart(Vec2D position, float timeStamp = 0, int pointerId = 0);
-    HitResult dragEnd(Vec2D position, float timeStamp = 0, int pointerId = 0);
+    HitResult pointerMove(Vec2D position);
+    HitResult pointerDown(Vec2D position);
+    HitResult pointerUp(Vec2D position);
+    HitResult pointerExit(Vec2D position);
     bool tryChangeState();
     bool hitTest(Vec2D position) const;
 
@@ -41,11 +37,6 @@ public:
     NestedInput* input(std::string name);
     void bindViewModelInstance(rcp<ViewModelInstance> viewModelInstance);
     void dataContext(DataContext* dataContext);
-    void releaseDependencies() override
-    {
-        m_StateMachineInstance.reset(nullptr);
-    }
-    void clearDataContext();
 };
 } // namespace rive
 

@@ -24,11 +24,11 @@ private:
 
 public:
     void setMesh(MeshDrawable* mesh);
-    ImageAsset* imageAsset() const;
+    ImageAsset* imageAsset() const { return (ImageAsset*)m_fileAsset; }
     void draw(Renderer* renderer) override;
     Core* hitTest(HitInfo*, const Mat2D&) override;
     StatusCode import(ImportStack& importStack) override;
-    void setAsset(rcp<FileAsset>) override;
+    void setAsset(FileAsset*) override;
     uint32_t assetId() override;
     Core* clone() const override;
     Vec2D measureLayout(float width,
@@ -42,7 +42,6 @@ public:
     float width() const;
     float height() const;
     void assetUpdated() override;
-    AABB localBounds() const override;
 
 #ifdef TESTING
     Mesh* mesh() const;

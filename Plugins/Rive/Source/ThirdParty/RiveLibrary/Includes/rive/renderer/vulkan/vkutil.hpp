@@ -7,7 +7,6 @@
 #include "rive/refcnt.hpp"
 #include "rive/renderer/gpu.hpp"
 #include "rive/renderer/gpu_resource.hpp"
-#include "rive/renderer/texture.hpp"
 #include <cassert>
 #include <stdio.h>
 #include <stdlib.h>
@@ -112,9 +111,6 @@ class BufferPool : public GPUResourcePool
 public:
     BufferPool(rcp<VulkanContext>, VkBufferUsageFlags, VkDeviceSize size = 0);
 
-    BufferPool(const BufferPool&) = delete;
-    BufferPool& operator=(const BufferPool&) = delete;
-
     VkDeviceSize size() const { return m_targetSize; }
     void setTargetSize(VkDeviceSize size);
 
@@ -135,10 +131,10 @@ private:
     VkDeviceSize m_targetSize;
 };
 
-class Image : public Resource
+class Texture : public Resource
 {
 public:
-    ~Image() override;
+    ~Texture() override;
 
     const VkImageCreateInfo& info() { return m_info; }
     operator VkImage() const { return m_vkImage; }
@@ -147,17 +143,17 @@ public:
 private:
     friend class ::rive::gpu::VulkanContext;
 
-    Image(rcp<VulkanContext>, const VkImageCreateInfo&);
+    Texture(rcp<VulkanContext>, const VkImageCreateInfo&);
 
     VkImageCreateInfo m_info;
     VmaAllocation m_vmaAllocation;
     VkImage m_vkImage;
 };
 
-class ImageView : public Resource
+class TextureView : public Resource
 {
 public:
-    ~ImageView() override;
+    ~TextureView() override;
 
     const VkImageViewCreateInfo& info() { return m_info; }
     operator VkImageView() const { return m_vkImageView; }
@@ -167,122 +163,13 @@ public:
 private:
     friend class ::rive::gpu::VulkanContext;
 
-    ImageView(rcp<VulkanContext>,
-              rcp<Image> textureRef,
-              const VkImageViewCreateInfo&);
+    TextureView(rcp<VulkanContext>,
+                rcp<Texture> textureRef,
+                const VkImageViewCreateInfo&);
 
-    const rcp<Image> m_textureRefOrNull;
+    const rcp<Texture> m_textureRefOrNull;
     VkImageViewCreateInfo m_info;
     VkImageView m_vkImageView;
-};
-
-// Tracks the current layout and access parameters of a VkImage.
-struct ImageAccess
-{
-    VkPipelineStageFlags pipelineStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-    VkAccessFlags accessMask = VK_ACCESS_NONE;
-    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    bool operator==(const ImageAccess& rhs) const
-    {
-        return pipelineStages == rhs.pipelineStages &&
-               accessMask == rhs.accessMask && layout == rhs.layout;
-    }
-    bool operator!=(const ImageAccess& rhs) const { return !(*this == rhs); }
-};
-
-// Provides a way to communicate that a VkImage may be invalidated (layout
-// converted to VK_IMAGE_LAYOUT_UNDEFINED) while performing a barrier.
-enum class ImageAccessAction : bool
-{
-    preserveContents,
-    invalidateContents,
-};
-
-// Wrapper for a simple 2D VkImage and VkImageView.
-class Texture2D : public rive::gpu::Texture
-{
-public:
-    VkImage vkImage() const { return *m_image; }
-    VkImageView vkImageView() const { return *m_imageView; }
-    const VkImageView* vkImageViewAddressOf() const
-    {
-        return m_imageView->vkImageViewAddressOf();
-    }
-    ImageAccess& lastAccess() { return m_lastAccess; }
-
-    // Deferred mechanism for uploading image data without a command buffer.
-    void scheduleUpload(const void* imageData, size_t imageDataSizeInBytes);
-
-    void barrier(VkCommandBuffer,
-                 const ImageAccess& dstAccess,
-                 ImageAccessAction = ImageAccessAction::preserveContents,
-                 VkDependencyFlags = 0);
-
-    // Downscales the top level into sub-levels.
-    // NOTE: Does not wrap the edges when filtering down. This is not an ideal
-    // situation for non-power-of-two textures that are intended to be used with
-    // a wrap mode of "repeat". We may want to add a "wrap" argument at some
-    // point.
-    void generateMipmaps(VkCommandBuffer, const ImageAccess& dstAccess);
-
-    // This method is inlined intentionally, in order to avoid function calls in
-    // the common usecase.
-    inline void prepareForFragmentShaderRead(VkCommandBuffer commandBuffer)
-    {
-        if (m_imageUploadBuffer != nullptr)
-        {
-            applyImageUploadBuffer(commandBuffer);
-        }
-        constexpr static ImageAccess READ_ACCESS = {
-            .pipelineStages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            .accessMask = VK_ACCESS_SHADER_READ_BIT,
-            .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        };
-        if (m_lastAccess != READ_ACCESS)
-        {
-            barrier(commandBuffer, READ_ACCESS);
-        }
-    }
-
-    // Simple mechanism for caching and reusing a descriptor set for this
-    // texture within a frame.
-    VkDescriptorSet getCachedDescriptorSet(uint64_t frameNumber,
-                                           ImageSampler sampler) const
-    {
-        return frameNumber == m_cachedDescriptorSetFrameNumber &&
-                       sampler == m_cachedDescriptorSetSampler
-                   ? m_cachedDescriptorSet
-                   : VK_NULL_HANDLE;
-    }
-
-    void updateCachedDescriptorSet(VkDescriptorSet descriptorSet,
-                                   uint64_t frameNumber,
-                                   ImageSampler sampler)
-    {
-        m_cachedDescriptorSet = descriptorSet;
-        m_cachedDescriptorSetFrameNumber = frameNumber;
-        m_cachedDescriptorSetSampler = sampler;
-    }
-
-protected:
-    friend class ::rive::gpu::VulkanContext;
-
-    void applyImageUploadBuffer(VkCommandBuffer);
-
-    Texture2D(rcp<VulkanContext> vk, VkImageCreateInfo);
-
-    rcp<Image> m_image;
-    rcp<ImageView> m_imageView;
-    ImageAccess m_lastAccess;
-
-    rcp<vkutil::Buffer> m_imageUploadBuffer;
-
-    // Simple mechanism for caching and reusing a descriptor set for this
-    // texture within a frame.
-    VkDescriptorSet m_cachedDescriptorSet = VK_NULL_HANDLE;
-    uint64_t m_cachedDescriptorSetFrameNumber;
-    ImageSampler m_cachedDescriptorSetSampler;
 };
 
 class Framebuffer : public Resource
@@ -321,6 +208,29 @@ public:
 
 private:
     VkViewport m_viewport;
+};
+
+// Tracks the current layout and access parameters of a VkImage.
+struct TextureAccess
+{
+    VkPipelineStageFlags pipelineStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    VkAccessFlags accessMask = VK_ACCESS_NONE;
+    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    bool operator==(const TextureAccess& rhs) const
+    {
+        return pipelineStages == rhs.pipelineStages &&
+               accessMask == rhs.accessMask && layout == rhs.layout;
+    }
+    bool operator!=(const TextureAccess& rhs) const { return !(*this == rhs); }
+};
+
+// Provides a way to communicate that a VkImage may be invalidated (layout
+// converted to VK_IMAGE_LAYOUT_UNDEFINED) while performing a barrier.
+enum class TextureAccessAction : bool
+{
+    preserveContents,
+    invalidateContents,
 };
 
 inline void set_shader_code(VkShaderModuleCreateInfo& info,

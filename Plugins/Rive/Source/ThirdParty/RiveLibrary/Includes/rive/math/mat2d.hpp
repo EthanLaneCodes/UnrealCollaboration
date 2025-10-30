@@ -102,8 +102,6 @@ public:
 private:
     std::array<float, 6> m_buffer;
 };
-static_assert(std::is_trivially_destructible<Mat2D>::value,
-              "Mat2D must be trivially destructible");
 
 inline Vec2D operator*(const Mat2D& m, Vec2D v)
 {

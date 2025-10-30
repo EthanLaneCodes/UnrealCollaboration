@@ -11,6 +11,7 @@
 #include "RenderResource.h"
 #include "ShaderParameterUtils.h"
 #include "GlobalShader.h"
+#include "GenerateMips.h"
 
 #if UE_VERSION_OLDER_THAN(5, 5, 0)
 #include "RHIResourceUpdates.h"
@@ -32,7 +33,6 @@
 #include "Misc/EngineVersionComparison.h"
 
 #include "RiveShaderTypes.h"
-#include "RiveStats.h"
 
 THIRD_PARTY_INCLUDES_START
 #include "rive/renderer/rive_render_image.hpp"
@@ -132,32 +132,17 @@ static TAutoConsoleVariable<int32> CVarShouldVisualizeRive(
     TEXT("r.rive.vis"),
     0,
     TEXT("If non 0, visualize one of many textures / buffers rive uses in "
-         "rendering\n")
-        TEXT("<=0: off\n")
-        TEXT("  1: visualize clip\n")
+         "rendering\n") TEXT("<=0: off\n") TEXT("  1: visualize clip\n")
         TEXT("  2: visualize coverage texture\n")
         TEXT("  3: visualize tessalation texture\n")
         TEXT("  4: visuzlize paint data buffer\n"),
     ECVF_Scalability | ECVF_RenderThreadSafe);
-#if WITH_EDITOR
-static TAutoConsoleVariable<int32> CVarInterlocksMode(
-    TEXT("r.rive.interlock"),
-    0,
-    TEXT("Forces a specific interlock mode for rive render context. Only works in editor.\n")
-        TEXT(" 0: Default, Auto select based on platform.\n")
-        TEXT(" 1: Atomics, force atomic, using interlock add etc.\n")
-        TEXT(" 2: RasterOrdered, For raster ordering, using RasterizeOrderedViews etc.")
-        TEXT(" 3: MSAA, Forces MSAA mode, rendering using stencil buffers and multi sampling."),
-    ECVF_Scalability | ECVF_RenderThreadSafe);
-#endif
 // clang-format on
 
 void GetPermutationForFeatures(
     const ShaderFeatures features,
     const ShaderMiscFlags miscFlags,
     const RHICapabilities& Capabilities,
-    bool force4ComponenWrite,
-    bool needsLinearGamma,
     AtomicPixelPermutationDomain& PixelPermutationDomain,
     AtomicVertexPermutationDomain& VertexPermutationDomain)
 {
@@ -185,12 +170,9 @@ void GetPermutationForFeatures(
     PixelPermutationDomain.Set<FEnableHSLBlendMode>(
         features & ShaderFeatures::ENABLE_HSL_BLEND_MODES);
     PixelPermutationDomain.Set<FEnableTypedUAVLoads>(
-        Capabilities.bSupportsTypedUAVLoads || force4ComponenWrite);
+        Capabilities.bSupportsTypedUAVLoads);
     PixelPermutationDomain.Set<FEnableFeather>(features &
                                                ShaderFeatures::ENABLE_FEATHER);
-    PixelPermutationDomain.Set<FEnableClockwiseFill>(
-        miscFlags & ShaderMiscFlags::clockwiseFill);
-    PixelPermutationDomain.Set<FEnableGammaCorrection>(needsLinearGamma);
 }
 
 /*
@@ -298,11 +280,7 @@ RHICapabilities::RHICapabilities()
     bSupportsRasterOrderViews =
         GDynamicRHI->GetInterfaceType() == ERHIInterfaceType::Metal;
 #else
-#if PLATFORM_APPLE
-    bSupportsRasterOrderViews = false;
-#else
     bSupportsRasterOrderViews = GRHISupportsRasterOrderViews;
-#endif
 #endif
     // it seems vulkan requires typed uav support.
     bSupportsTypedUAVLoads =
@@ -316,46 +294,14 @@ FBufferRHIRef makeSimpleImmutableBuffer(FRHICommandList& RHICmdList,
                                         EBufferUsageFlags bindFlags,
                                         FResourceArrayInterface& ResourceArray)
 {
-    const size_t Size = ResourceArray.GetResourceDataSize();
-
-    FRHIBufferCreateDesc CreateDesc =
-        FRHIBufferCreateDesc::Create(DebugName,
-                                     Size,
-                                     sizeof(DataType),
-                                     EBufferUsageFlags::Static | bindFlags)
-            .SetGPUMask(FRHIGPUMask::All())
-            .SetInitialState(ERHIAccess::VertexOrIndexBuffer)
-            .SetClassName(NAME_None)
-            .SetOwnerName(NAME_None)
-            .SetInitActionResourceArray(&ResourceArray);
-
-    return RHICmdList.CreateBuffer(CreateDesc);
-}
-
-ESamplerFilter SamplerFilterFromImageFilterOption(const ImageFilter option)
-{
-    switch (option)
-    {
-        default:
-        case ImageFilter::bilinear:
-            return ESamplerFilter::SF_Bilinear;
-        case ImageFilter::nearest:
-            return ESamplerFilter::SF_Point;
-    }
-}
-
-ESamplerAddressMode AddressModeFromImageWrapOption(const ImageWrap option)
-{
-    switch (option)
-    {
-        default:
-        case ImageWrap::clamp:
-            return ESamplerAddressMode::AM_Clamp;
-        case ImageWrap::repeat:
-            return ESamplerAddressMode::AM_Wrap;
-        case ImageWrap::mirror:
-            return ESamplerAddressMode::AM_Mirror;
-    }
+    const size_t size = ResourceArray.GetResourceDataSize();
+    FRHIResourceCreateInfo Info(DebugName, &ResourceArray);
+    auto buffer = RHICmdList.CreateBuffer(size,
+                                          EBufferUsageFlags::Static | bindFlags,
+                                          sizeof(DataType),
+                                          ERHIAccess::VertexOrIndexBuffer,
+                                          Info);
+    return buffer;
 }
 
 BufferRingRHIImpl::BufferRingRHIImpl(EBufferUsageFlags flags,
@@ -367,18 +313,15 @@ BufferRingRHIImpl::BufferRingRHIImpl(EBufferUsageFlags flags,
 FBufferRHIRef BufferRingRHIImpl::Sync(FRHICommandList& commandList,
                                       size_t offsetInBytes) const
 {
-    const size_t size = capacityInBytes() - offsetInBytes;
-    FRHIBufferCreateDesc CreateDesc =
-        FRHIBufferCreateDesc::Create(TEXT("rive.BufferRingRHIImpl_"),
-                                     size,
-                                     m_stride,
-                                     m_flags | EBufferUsageFlags::Volatile)
-            .SetGPUMask(FRHIGPUMask::All())
-            .SetInitialState(ERHIAccess::WriteOnlyMask)
-            .SetClassName(NAME_None)
-            .SetOwnerName(NAME_None);
+    FRHIResourceCreateInfo Info(TEXT("rive.BufferRingRHIImpl_"));
 
-    auto buffer = commandList.CreateBuffer(CreateDesc);
+    const size_t size = capacityInBytes() - offsetInBytes;
+    auto buffer =
+        commandList.CreateBuffer(size,
+                                 m_flags | EBufferUsageFlags::Volatile,
+                                 m_stride,
+                                 ERHIAccess::WriteOnlyMask,
+                                 Info);
     // for DX12 we should use RLM_WriteOnly_NoOverwrite but RLM_WriteOnly works
     // everywhere so we use it for now
     auto map = commandList.LockBuffer(buffer, 0, size, RLM_WriteOnly);
@@ -455,10 +398,6 @@ void RenderBufferRHIImpl::onUnmap() { m_buffer.unmapAndSubmitBuffer(); }
 class TextureRHIImpl : public Texture
 {
 public:
-    TextureRHIImpl(const FTextureRHIRef& Texture) :
-        Texture(Texture->GetSizeX(), Texture->GetSizeY()), m_texture(Texture)
-    {}
-
     TextureRHIImpl(uint32_t width,
                    uint32_t height,
                    uint32_t mipLevelCount,
@@ -473,9 +412,8 @@ public:
             FRHITextureCreateDesc::Create2D(TEXT("rive.PLSTextureRHIImpl_"),
                                             m_width,
                                             m_height,
-                                            PixelFormat)
-                .SetNumMips(1);
-
+                                            PixelFormat);
+        Desc.SetNumMips(mipLevelCount);
         m_texture = CREATE_TEXTURE_ASYNC(commandList, Desc);
         commandList->UpdateTexture2D(
             m_texture,
@@ -505,11 +443,6 @@ private:
 class TextureRHIImpl : public Texture
 {
 public:
-    TextureRHIImpl(const FTextureRHIRef& InTexture) :
-        Texture(InTexture->GetSizeX(), InTexture->GetSizeY()),
-        m_texture(InTexture)
-    {}
-
     TextureRHIImpl(uint32_t width,
                    uint32_t height,
                    uint32_t mipLevelCount,
@@ -517,23 +450,24 @@ public:
                    EPixelFormat PixelFormat = PF_B8G8R8A8) :
         Texture(width, height)
     {
-        FRHICommandList& RHICmdList = GRHICommandList.GetImmediateCommandList();
-        FRHICommandListScopedPipelineGuard Guard(RHICmdList);
+        FRHICommandList& commandList =
+            GRHICommandList.GetImmediateCommandList();
+        FRHICommandListScopedPipelineGuard Guard(commandList);
 
         auto Desc =
             FRHITextureCreateDesc::Create2D(TEXT("rive.PLSTextureRHIImpl_"),
                                             m_width,
                                             m_height,
                                             PixelFormat)
-                .SetNumMips(1);
-
-        m_texture = CREATE_TEXTURE_ASYNC(RHICmdList, Desc);
-        RHICmdList.UpdateTexture2D(
+                .AddFlags(ETextureCreateFlags::SRGB);
+        Desc.SetNumMips(1);
+        m_texture = CREATE_TEXTURE_ASYNC(commandList, Desc);
+        commandList.UpdateTexture2D(
             m_texture,
             0,
             FUpdateTextureRegion2D(0, 0, 0, 0, m_width, m_height),
             m_width * 4,
-            imageData);
+            imageData);        
     }
 
     FRDGTextureRef asRDGTexture(FRDGBuilder& Builder) const
@@ -590,142 +524,15 @@ RenderTargetRHI::RenderTargetRHI(FRHICommandList& RHICmdList,
     m_targetTextureSupportsUAV = static_cast<bool>(
         m_textureTarget->GetDesc().Flags & ETextureCreateFlags::UAV);
 
-    m_targetTextureSupportsRenderTarget =
-        static_cast<bool>(m_textureTarget->GetDesc().Flags &
-                          ETextureCreateFlags::RenderTargetable);
-
-    // Rive is not currently supported without UAVs.
-    check(Capabilities.bSupportsPixelShaderUAVs);
-}
-
-RenderTargetRHI::RenderTargetRHI(FRHICommandList& RHICmdList,
-                                 const RHICapabilities& Capabilities,
-                                 FRenderTarget* InTextureTarget) :
-    RenderTarget(InTextureTarget->GetSizeXY().X,
-                 InTextureTarget->GetSizeXY().Y),
-    m_renderTarget(InTextureTarget),
-    m_capabilities(Capabilities)
-{
-    FRHITextureCreateDesc coverageDesc =
-        FRHITextureCreateDesc::Create2D(TEXT("rive.AtomicCoverage"),
-                                        width(),
-                                        height(),
-                                        PF_R32_UINT);
-    coverageDesc.SetNumMips(1);
-    coverageDesc.AddFlags(ETextureCreateFlags::UAV);
-    m_atomicCoverageTexture = CREATE_TEXTURE(RHICmdList, coverageDesc);
-
-    FRHITextureCreateDesc clipDesc =
-        FRHITextureCreateDesc::Create2D(TEXT("rive.Clip"),
-                                        width(),
-                                        height(),
-                                        PF_R32_UINT);
-    clipDesc.SetNumMips(1);
-    clipDesc.AddFlags(ETextureCreateFlags::UAV);
-    m_clipTexture = CREATE_TEXTURE(RHICmdList, clipDesc);
-
-    const auto rhiTexture = m_renderTarget->GetRenderTargetTexture();
-
-    m_targetTextureSupportsUAV = static_cast<bool>(rhiTexture->GetDesc().Flags &
-                                                   ETextureCreateFlags::UAV);
-
-    m_targetTextureSupportsRenderTarget = static_cast<bool>(
-        rhiTexture->GetDesc().Flags & ETextureCreateFlags::RenderTargetable);
-
-    // Rive is not currently supported without UAVs.
-    check(Capabilities.bSupportsPixelShaderUAVs);
-}
-
-RenderTargetRHI::RenderTargetRHI(FRDGBuilder& GraphBuilder,
-                                 const RHICapabilities& Capabilities,
-                                 FRDGTextureRef InTextureTarget) :
-    RenderTarget(InTextureTarget->Desc.GetSize().X,
-                 InTextureTarget->Desc.GetSize().Y),
-    m_rdgTextureTarget(InTextureTarget),
-    m_capabilities(Capabilities)
-{
-    auto& RHICmdList = GraphBuilder.RHICmdList;
-
-    FRHITextureCreateDesc coverageDesc =
-        FRHITextureCreateDesc::Create2D(TEXT("rive.AtomicCoverage"),
-                                        width(),
-                                        height(),
-                                        PF_R32_UINT);
-    coverageDesc.SetNumMips(1);
-    coverageDesc.AddFlags(ETextureCreateFlags::UAV);
-    m_atomicCoverageTexture = CREATE_TEXTURE(RHICmdList, coverageDesc);
-
-    FRHITextureCreateDesc clipDesc =
-        FRHITextureCreateDesc::Create2D(TEXT("rive.Clip"),
-                                        width(),
-                                        height(),
-                                        PF_R32_UINT);
-    clipDesc.SetNumMips(1);
-    clipDesc.AddFlags(ETextureCreateFlags::UAV);
-    m_clipTexture = CREATE_TEXTURE(RHICmdList, clipDesc);
-
-    m_targetTextureSupportsUAV = static_cast<bool>(
-        m_rdgTextureTarget->Desc.Flags & ETextureCreateFlags::UAV);
-
-    m_targetTextureSupportsRenderTarget = static_cast<bool>(
-        m_rdgTextureTarget->Desc.Flags & ETextureCreateFlags::RenderTargetable);
-
     // Rive is not currently supported without UAVs.
     check(Capabilities.bSupportsPixelShaderUAVs);
 }
 
 FRDGTextureRef RenderTargetRHI::targetTexture(FRDGBuilder& Builder)
 {
-    if (m_rdgTextureTarget)
-        return m_rdgTextureTarget;
-
-    if (m_renderTarget)
-    {
-        return m_renderTarget->GetRenderTargetTexture(Builder);
-    }
-
     return Builder.RegisterExternalTexture(
         CreateRenderTarget(m_textureTarget, TEXT("rive.TargetTexture")),
         ERDGTextureFlags::MultiFrame);
-}
-
-FRDGTextureRef RenderTargetRHI::backBufferTexture(FRDGBuilder& Builder)
-{
-    check(m_rdgTextureTarget || m_textureTarget || m_renderTarget);
-    if (m_rdgTextureTarget)
-    {
-        const FRDGTextureDesc& targetDesc = m_rdgTextureTarget->Desc;
-        const FRDGTextureDesc desc = FRDGTextureDesc::Create2D(
-            targetDesc.Extent,
-            targetDesc.Format,
-            FClearValueBinding(FLinearColor::Transparent),
-            ETextureCreateFlags::UAV | ETextureCreateFlags::RenderTargetable);
-
-        return Builder.CreateTexture(desc, TEXT("rive.BackBuffer"));
-    }
-    else if (m_renderTarget)
-    {
-        auto rhiTexture = m_renderTarget->GetRenderTargetTexture();
-        const FRHITextureDesc& targetDesc = rhiTexture->GetDesc();
-        const FRDGTextureDesc desc = FRDGTextureDesc::Create2D(
-            targetDesc.Extent,
-            targetDesc.Format,
-            FClearValueBinding(FLinearColor::Transparent),
-            ETextureCreateFlags::UAV | ETextureCreateFlags::RenderTargetable);
-
-        return Builder.CreateTexture(desc, TEXT("rive.BackBuffer"));
-    }
-    else
-    {
-        const FRHITextureDesc& targetDesc = m_textureTarget->GetDesc();
-        const FRDGTextureDesc desc = FRDGTextureDesc::Create2D(
-            targetDesc.Extent,
-            targetDesc.Format,
-            FClearValueBinding(FLinearColor::Transparent),
-            ETextureCreateFlags::UAV | ETextureCreateFlags::RenderTargetable);
-
-        return Builder.CreateTexture(desc, TEXT("rive.BackBuffer"));
-    }
 }
 
 FRDGTextureRef RenderTargetRHI::clipTexture(FRDGBuilder& Builder)
@@ -734,14 +541,7 @@ FRDGTextureRef RenderTargetRHI::clipTexture(FRDGBuilder& Builder)
         CreateRenderTarget(m_clipTexture, TEXT("rive.Clip")),
         ERDGTextureFlags::MultiFrame);
 }
-#if PLATFORM_APPLE
-FRDGBufferRef RenderTargetRHI::coverageBuffer(FRDGBuilder& Builder)
-{
-    auto BufferDesc =
-        FRDGBufferDesc::CreateBufferDesc(sizeof(uint), width() * height());
-    return Builder.CreateBuffer(BufferDesc, TEXT("rive.AtomicCoverage"));
-}
-#endif
+
 FRDGTextureRef RenderTargetRHI::coverageTexture(FRDGBuilder& Builder)
 {
     return Builder.RegisterExternalTexture(
@@ -774,23 +574,15 @@ void DelayLoadedTexture::Sync(FRDGBuilder& RDGBuilder,
 }
 
 std::unique_ptr<RenderContext> RenderContextRHIImpl::MakeContext(
-    FRHICommandListImmediate& CommandListImmediate,
-    const RHICapabilitiesOverrides& Overrides)
+    FRHICommandListImmediate& CommandListImmediate)
 {
     auto plsContextImpl =
-        std::make_unique<RenderContextRHIImpl>(CommandListImmediate, Overrides);
+        std::make_unique<RenderContextRHIImpl>(CommandListImmediate);
     return std::make_unique<RenderContext>(std::move(plsContextImpl));
 }
 
-rive::rcp<rive::RenderImage> RenderContextRHIImpl::MakeExternalRenderImage(
-    const FTextureRHIRef& InTargetTexture)
-{
-    return make_rcp<RiveRenderImage>(make_rcp<TextureRHIImpl>(InTargetTexture));
-}
-
 RenderContextRHIImpl::RenderContextRHIImpl(
-    FRHICommandListImmediate& CommandListImmediate,
-    const RHICapabilitiesOverrides& Overrides)
+    FRHICommandListImmediate& CommandListImmediate)
 {
     auto CapabilityString = m_capabilities.AsString();
     UE_LOG(LogRiveRenderer,
@@ -799,23 +591,12 @@ RenderContextRHIImpl::RenderContextRHIImpl(
            *CapabilityString);
 
     m_platformFeatures.supportsFragmentShaderAtomics =
-        m_capabilities.bSupportsPixelShaderUAVs &
-        Overrides.bSupportsPixelShaderUAVs;
+        m_capabilities.bSupportsPixelShaderUAVs;
     m_platformFeatures.supportsClipPlanes = true;
     m_platformFeatures.supportsRasterOrdering =
-        m_capabilities.bSupportsRasterOrderViews &
-        Overrides.bSupportsRasterOrderViews;
+        false; // m_capabilities.bSupportsRasterOrderViews;
     m_platformFeatures.clipSpaceBottomUp = true;
     m_platformFeatures.framebufferBottomUp = false;
-    m_capabilities.bSupportsTypedUAVLoads &= Overrides.bSupportsTypedUAVLoads;
-#if PLATFORM_ANDROID
-    m_platformFeatures.pathIDGranularity = 2;
-    m_platformFeatures.framebufferBottomUp = true;
-    m_platformFeatures.clipSpaceBottomUp = false;
-#endif
-#if WITH_EDITOR
-    m_originalPlatformFeatures = m_platformFeatures;
-#endif
 
     auto ShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
 
@@ -952,6 +733,14 @@ RenderContextRHIImpl::RenderContextRHIImpl(
                                          1,
                                          0,
                                          SCF_Never>::GetRHI();
+    m_mipmapSampler = TStaticSamplerState<SF_Point,
+                                          AM_Clamp,
+                                          AM_Clamp,
+                                          AM_Clamp,
+                                          0,
+                                          1,
+                                          0,
+                                          SCF_Never>::GetRHI();
     m_featherSampler = TStaticSamplerState<SF_Bilinear,
                                            AM_Clamp,
                                            AM_Clamp,
@@ -969,25 +758,11 @@ RenderContextRHIImpl::RenderContextRHIImpl(
                                           0,
                                           SCF_Never>::GetRHI();
 
-    for (size_t i = 0; i < rive::ImageSampler::MAX_SAMPLER_PERMUTATIONS; i++)
-    {
-        auto filter = SamplerFilterFromImageFilterOption(
-            rive::ImageSampler::GetFilterOptionFromKey(i));
-        auto wrapX = AddressModeFromImageWrapOption(
-            rive::ImageSampler::GetWrapXOptionFromKey(i));
-        auto wrapY = AddressModeFromImageWrapOption(
-            rive::ImageSampler::GetWrapYOptionFromKey(i));
-
-        m_imageSamplers[i] = RHICreateSamplerState(
-            FSamplerStateInitializerRHI(filter, wrapX, wrapY));
-    }
-
     auto PlaceholderDesc =
         FRHITextureCreateDesc::Create2D(TEXT("rive.Placeholder"),
                                         FIntPoint(1, 1),
                                         PF_R32_UINT);
-    PlaceholderDesc.AddFlags(ETextureCreateFlags::ShaderResource |
-                             ETextureCreateFlags::UAV);
+    PlaceholderDesc.AddFlags(ETextureCreateFlags::ShaderResource);
     m_placeholderTexture =
         CREATE_TEXTURE(CommandListImmediate, PlaceholderDesc);
 
@@ -1031,57 +806,12 @@ RenderContextRHIImpl::RenderContextRHIImpl(
         0,
         false);
 }
-#if WITH_EDITOR
-void RenderContextRHIImpl::updateFromInterlockCVar(int32 CVar)
-{
-    switch (CVar)
-    {
-        default:
-        case 0:
-            m_platformFeatures = m_originalPlatformFeatures;
-            break;
-        case 1:
-            m_platformFeatures.supportsFragmentShaderAtomics = true;
-            m_platformFeatures.supportsRasterOrdering = false;
-            m_platformFeatures.supportsClipPlanes = false;
-            break;
-        case 2:
-            m_platformFeatures.supportsFragmentShaderAtomics = false;
-            m_platformFeatures.supportsRasterOrdering = true;
-            m_platformFeatures.supportsClipPlanes = false;
-            break;
-        case 3:
-            m_platformFeatures.supportsFragmentShaderAtomics = false;
-            m_platformFeatures.supportsRasterOrdering = false;
-            m_platformFeatures.supportsClipPlanes = true;
-            break;
-    }
-}
-#endif
 
 rcp<RenderTargetRHI> RenderContextRHIImpl::makeRenderTarget(
     FRHICommandListImmediate& RHICmdList,
     const FTextureRHIRef& InTargetTexture)
 {
     return make_rcp<RenderTargetRHI>(RHICmdList,
-                                     m_capabilities,
-                                     InTargetTexture);
-}
-
-rive::rcp<RenderTargetRHI> RenderContextRHIImpl::makeRenderTarget(
-    FRHICommandListImmediate& RHICmdList,
-    FRenderTarget* InTargetTexture)
-{
-    return make_rcp<RenderTargetRHI>(RHICmdList,
-                                     m_capabilities,
-                                     InTargetTexture);
-}
-
-rive::rcp<RenderTargetRHI> RenderContextRHIImpl::makeRenderTarget(
-    FRDGBuilder& GraphBuilder,
-    FRDGTextureRef InTargetTexture)
-{
-    return make_rcp<RenderTargetRHI>(GraphBuilder,
                                      m_capabilities,
                                      InTargetTexture);
 }
@@ -1413,78 +1143,42 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
     auto renderTarget = static_cast<RenderTargetRHI*>(desc.renderTarget);
     check(renderTarget);
 
-    FRDGBuilder* GraphBuilderPtr =
-        static_cast<FRDGBuilder*>(desc.externalCommandBuffer);
-    check(GraphBuilderPtr);
-
-    FRDGBuilder& GraphBuilder = *GraphBuilderPtr;
-    FRHICommandList& CommandList = GraphBuilder.RHICmdList;
+    FRHICommandList& CommandList = GRHICommandList.GetImmediateCommandList();
     auto ShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
 
+    FRDGBuilder GraphBuilder(CommandList.GetAsImmediate());
     {
-        SCOPED_GPU_STAT(STAT_RiveFlush);
         RDG_GPU_STAT_SCOPE(GraphBuilder, STAT_RiveFlush);
 
         auto targetTexture = renderTarget->targetTexture(GraphBuilder);
         check(targetTexture);
         auto clipTexture = renderTarget->clipTexture(GraphBuilder);
         check(clipTexture);
-        FRDGTextureRef backBuffer = nullptr;
-        FRDGTextureRef coverageTexture = nullptr;
-
-#if PLATFORM_APPLE
-        FRDGBufferRef coverageBuffer = nullptr;
-        FRDGBufferUAVRef coverageUAV = nullptr;
-#else
-        FRDGTextureUAVRef coverageUAV = nullptr;
-#endif
-
-#if PLATFORM_APPLE
-        coverageBuffer = renderTarget->coverageBuffer(GraphBuilder);
-        check(coverageBuffer);
-#else
-        coverageTexture = renderTarget->coverageTexture(GraphBuilder);
+        auto coverageTexture = renderTarget->coverageTexture(GraphBuilder);
         check(coverageTexture);
-#endif
 
-        bool needsBackBuffer =
-            (!renderTarget->TargetTextureSupportsUAV() &&
-             !desc.atomicFixedFunctionColorOutput) ||
-            (!renderTarget->TargetTextureSupportsRenderTarget() &&
-             desc.atomicFixedFunctionColorOutput);
-
-        if (needsBackBuffer)
-        {
-            backBuffer = renderTarget->backBufferTexture(GraphBuilder);
-        }
-
-        bool needsForceUAVTypes = targetTexture->Desc.Format != PF_R8G8B8A8;
-
-        bool TargetIsSRGB = static_cast<bool>(targetTexture->Desc.Flags &
-                                              ETextureCreateFlags::SRGB);
-        bool needsLinearColorOutput = desc.atomicFixedFunctionColorOutput &&
-                                      TargetIsSRGB && !needsBackBuffer;
-
+        check(renderTarget->TargetTextureSupportsUAV());
         FRDGTextureUAVRef targetUAV = nullptr;
 
-        if (!desc.atomicFixedFunctionColorOutput)
+        if (m_capabilities.bSupportsTypedUAVLoads)
         {
-            if (m_capabilities.bSupportsTypedUAVLoads || needsForceUAVTypes)
-            {
-                targetUAV = GraphBuilder.CreateUAV(
-                    needsBackBuffer ? backBuffer : targetTexture);
-            }
-            else
-            {
-                targetUAV = GraphBuilder.CreateUAV(
-                    needsBackBuffer ? backBuffer : targetTexture,
-                    ERDGUnorderedAccessViewFlags::None,
-                    PF_R32_UINT);
-            }
+            targetUAV = GraphBuilder.CreateUAV(targetTexture);
+        }
+        else
+        {
+            targetUAV =
+                GraphBuilder.CreateUAV(targetTexture,
+                                       ERDGUnorderedAccessViewFlags::None,
+                                       PF_R32_UINT);
         }
 
         auto clipUAV =
             GraphBuilder.CreateUAV(clipTexture,
+                                   ERDGUnorderedAccessViewFlags::None,
+                                   PF_R32_UINT);
+
+        auto coverageUAV =
+            GraphBuilder.CreateUAV(coverageTexture,
                                    ERDGUnorderedAccessViewFlags::None,
                                    PF_R32_UINT);
 
@@ -1493,16 +1187,6 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
             m_flushUniformBuffer->Sync(GraphBuilder,
                                        desc.flushUniformDataOffsetInBytes);
 
-#if PLATFORM_APPLE
-        // Apple platforms validate that a buffer is bound so always make one.
-        static FImageDrawUniforms StaticZeroBuffer = {};
-        auto imageDrawUniforms =
-            GraphBuilder.CreateUniformBuffer<FImageDrawUniforms>(
-                &StaticZeroBuffer);
-#else
-        TRDGUniformBufferRef<FImageDrawUniforms> imageDrawUniforms = nullptr;
-#endif
-
         auto placeholderTexture = GraphBuilder.RegisterExternalTexture(
             CreateRenderTarget(m_placeholderTexture, TEXT("RivePlaceholder")));
         auto placeholderSRV = GraphBuilder.CreateSRV(placeholderTexture);
@@ -1510,23 +1194,6 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
         FRDGTextureRef gradiantTexture = placeholderTexture;
         FRDGTextureRef tesselationTexture = placeholderTexture;
         FRDGTextureSRVRef tessSRV = placeholderSRV;
-        FRDGTextureRef scratchColorTexture = placeholderTexture;
-        FRDGTextureUAVRef scratchUAV =
-            GraphBuilder.CreateUAV(placeholderTexture);
-
-        if (desc.interlockMode == InterlockMode::rasterOrdering)
-        {
-            FRDGTextureDesc scratchDesc = FRDGTextureDesc::Create2D(
-                targetTexture->Desc.Extent,
-                targetTexture->Desc.Format,
-                FClearValueBinding::Black,
-                ETextureCreateFlags::UAV |
-                    ETextureCreateFlags::InputAttachmentRead);
-            scratchColorTexture =
-                GraphBuilder.CreateTexture(scratchDesc,
-                                           TEXT("rive.scratchColor"));
-            scratchUAV = GraphBuilder.CreateUAV(scratchColorTexture);
-        }
 
         FRDGTextureRef atlasTexture = placeholderTexture;
 
@@ -1568,26 +1235,13 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
         {
             RDG_GPU_STAT_SCOPE(GraphBuilder,
                                STAT_RiveFlush_RiveClearCoverageClip);
-#if PLATFORM_APPLE
-            coverageUAV = GraphBuilder.CreateUAV(coverageBuffer,
-                                                 EPixelFormat::PF_R32_UINT);
-            RDG_GPU_STAT_SCOPE(GraphBuilder,
-                               STAT_RiveFlush_RiveClearCoverageClip);
-            AddClearUAVPass(GraphBuilder, coverageUAV, desc.coverageClearValue);
-#else
-            coverageUAV =
-                GraphBuilder.CreateUAV(coverageTexture,
-                                       ERDGUnorderedAccessViewFlags::None,
-                                       PF_R32_UINT);
-            RDG_GPU_STAT_SCOPE(GraphBuilder,
-                               STAT_RiveFlush_RiveClearCoverageClip);
+            check(coverageUAV);
             AddClearUAVPass(GraphBuilder,
                             coverageUAV,
                             FUintVector4(desc.coverageClearValue,
                                          desc.coverageClearValue,
                                          desc.coverageClearValue,
                                          desc.coverageClearValue));
-#endif
 
             if (desc.combinedShaderFeatures &
                 gpu::ShaderFeatures::ENABLE_CLIPPING)
@@ -1746,21 +1400,19 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
             }
         }
 
+        bool renderDirectToRasterPipeline =
+            desc.interlockMode == InterlockMode::atomics &&
+            (!renderTarget->TargetTextureSupportsUAV() ||
+             !(desc.combinedShaderFeatures &
+               ShaderFeatures::ENABLE_ADVANCED_BLEND));
+
         // always load because the next draw is split into multipl render
         // passes.
         ERenderTargetLoadAction loadAction = ERenderTargetLoadAction::ELoad;
 
-        // Always clear back buffer.
-        if (needsBackBuffer)
-        {
-            AddClearRenderTargetPass(GraphBuilder,
-                                     backBuffer,
-                                     FLinearColor::Transparent);
-        }
-
         if (desc.colorLoadAction == LoadAction::clear)
         {
-            if (desc.atomicFixedFunctionColorOutput)
+            if (renderDirectToRasterPipeline)
             {
                 float clearColor4f[4];
                 UnpackColorToRGBA32FPremul(desc.colorClearValue, clearColor4f);
@@ -1773,7 +1425,7 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
             }
             else
             {
-                if (m_capabilities.bSupportsTypedUAVLoads || needsForceUAVTypes)
+                if (m_capabilities.bSupportsTypedUAVLoads)
                 {
                     float clearColor4f[4];
                     UnpackColorToRGBA32FPremul(desc.colorClearValue,
@@ -1814,16 +1466,9 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                         ? desc.combinedShaderFeatures
                         : batch.shaderFeatures;
 
-                auto shaderMiscFlags = batch.shaderMiscFlags;
-
-                if (batch.drawContents & DrawContents::clockwiseFill)
-                    shaderMiscFlags &= ShaderMiscFlags::clockwiseFill;
-
                 GetPermutationForFeatures(ShaderFeatures,
-                                          shaderMiscFlags,
+                                          batch.shaderMiscFlags,
                                           m_capabilities,
-                                          needsForceUAVTypes,
-                                          needsLinearColorOutput,
                                           PixelPermutationDomain,
                                           VertexPermutationDomain);
 
@@ -1841,17 +1486,14 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                               renderTarget->width(),
                               renderTarget->height());
                 CommonPassParameters->NeedsSourceBlending =
-                    desc.atomicFixedFunctionColorOutput;
+                    renderDirectToRasterPipeline;
 
                 FRiveFlushPassParameters* PassParameters =
                     GraphBuilder.AllocParameters<FRiveFlushPassParameters>();
 
                 PassParameters->FlushUniforms = flushUniforms;
                 PassParameters->PS.gradSampler = m_linearSampler;
-                check(batch.imageSampler.asKey() <
-                      ImageSampler::MAX_SAMPLER_PERMUTATIONS);
-                PassParameters->PS.imageSampler =
-                    m_imageSamplers[batch.imageSampler.asKey()];
+                PassParameters->PS.imageSampler = m_mipmapSampler;
                 PassParameters->PS.atlasSampler = m_atlasSampler;
                 PassParameters->PS.featherSampler = m_featherSampler;
                 PassParameters->PS.GLSL_atlasTexture_raw = atlasTexture;
@@ -1860,26 +1502,20 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                 PassParameters->PS.GLSL_paintAuxBuffer_raw = paintAuxSRV;
                 PassParameters->PS.GLSL_paintBuffer_raw = paintSRV;
                 PassParameters->PS.coverageAtomicBuffer = coverageUAV;
-                PassParameters->PS.coverageCountBuffer = coverageUAV;
                 PassParameters->PS.clipBuffer = clipUAV;
                 PassParameters->PS.colorBuffer = targetUAV;
-                PassParameters->PS.scratchColorBuffer = scratchUAV;
-                PassParameters->PS.GLSL_imageTexture_raw = placeholderTexture;
 
                 PassParameters->VS.GLSL_tessVertexTexture_raw = tessSRV;
                 PassParameters->VS.GLSL_pathBuffer_raw = pathSRV;
                 PassParameters->VS.GLSL_contourBuffer_raw = contourSRV;
-                PassParameters->VS.GLSL_paintAuxBuffer_raw = paintAuxSRV;
-                PassParameters->VS.GLSL_paintBuffer_raw = paintSRV;
                 PassParameters->VS.GLSL_featherTexture_raw = featherTexture;
                 PassParameters->VS.featherSampler = m_featherSampler;
                 PassParameters->VS.baseInstance = 0;
 
-                if (desc.atomicFixedFunctionColorOutput)
+                if (renderDirectToRasterPipeline)
                 {
-                    PassParameters->RenderTargets[0] = FRenderTargetBinding(
-                        needsBackBuffer ? backBuffer : targetTexture,
-                        loadAction);
+                    PassParameters->RenderTargets[0] =
+                        FRenderTargetBinding(targetTexture, loadAction);
                 }
                 else
                 {
@@ -1910,18 +1546,9 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
 
                         PassParameters->VS.baseInstance = batch.baseElement;
 
-                        if (desc.interlockMode == InterlockMode::rasterOrdering)
-                        {
-                            AddDrawRasterOrderPatchesPass(GraphBuilder,
-                                                          CommonPassParameters,
-                                                          PassParameters);
-                        }
-                        else
-                        {
-                            AddDrawPatchesPass(GraphBuilder,
-                                               CommonPassParameters,
-                                               PassParameters);
-                        }
+                        AddDrawPatchesPass(GraphBuilder,
+                                           CommonPassParameters,
+                                           PassParameters);
                     }
                     break;
                     case DrawType::interiorTriangulation:
@@ -1936,19 +1563,9 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                                 EVertexDeclarations::InteriorTriangles)];
                         CommonPassParameters->VertexBuffers[0] = triangleBuffer;
 
-                        if (desc.interlockMode == InterlockMode::rasterOrdering)
-                        {
-                            AddDrawRasterOrderInteriorTrianglesPass(
-                                GraphBuilder,
-                                CommonPassParameters,
-                                PassParameters);
-                        }
-                        else
-                        {
-                            AddDrawInteriorTrianglesPass(GraphBuilder,
-                                                         CommonPassParameters,
-                                                         PassParameters);
-                        }
+                        AddDrawInteriorTrianglesPass(GraphBuilder,
+                                                     CommonPassParameters,
+                                                     PassParameters);
                     }
                     break;
                     case DrawType::atlasBlit:
@@ -1971,12 +1588,11 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                         check(paintSRV);
                         check(paintAuxSRV);
                         check(m_imageDrawUniformBuffer);
-                        check(desc.interlockMode == InterlockMode::atomics);
 
                         auto imageTexture = static_cast<const TextureRHIImpl*>(
                             batch.imageTexture);
 
-                        imageDrawUniforms = m_imageDrawUniformBuffer->Sync(
+                        auto imageDrawUniforms = m_imageDrawUniformBuffer->Sync(
                             GraphBuilder,
                             batch.imageDrawDataOffset);
 
@@ -2024,9 +1640,11 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                         auto VertexBufferRHI = VertexBuffer->Sync(CommandList);
                         auto UVBufferRHI = UVBuffer->Sync(CommandList);
 
-                        imageDrawUniforms = m_imageDrawUniformBuffer->Sync(
-                            GraphBuilder,
-                            batch.imageDrawDataOffset);
+                        auto imageDrawUniforms =
+                            PassParameters->VS.ImageDrawUniforms =
+                                m_imageDrawUniformBuffer->Sync(
+                                    GraphBuilder,
+                                    batch.imageDrawDataOffset);
 
                         PassParameters->VS.ImageDrawUniforms =
                             imageDrawUniforms;
@@ -2043,25 +1661,15 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                             VertexBufferRHI;
                         CommonPassParameters->VertexBuffers[1] = UVBufferRHI;
                         CommonPassParameters->IndexBuffer = IndexBufferRHI;
-                        if (desc.interlockMode == InterlockMode::rasterOrdering)
-                        {
-                            AddDrawRasterOrderImageMeshPass(
-                                GraphBuilder,
-                                VertexBuffer->sizeInBytes() / sizeof(Vec2D),
-                                CommonPassParameters,
-                                PassParameters);
-                        }
-                        else
-                        {
-                            AddDrawImageMeshPass(GraphBuilder,
-                                                 VertexBuffer->sizeInBytes() /
-                                                     sizeof(Vec2D),
-                                                 CommonPassParameters,
-                                                 PassParameters);
-                        }
+
+                        AddDrawImageMeshPass(GraphBuilder,
+                                             VertexBuffer->sizeInBytes() /
+                                                 sizeof(Vec2D),
+                                             CommonPassParameters,
+                                             PassParameters);
                     }
                     break;
-                    case DrawType::renderPassResolve:
+                    case DrawType::atomicResolve:
                     {
                         check(paintSRV);
                         check(paintAuxSRV);
@@ -2075,7 +1683,7 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                                              PassParameters);
                     }
                     break;
-                    case DrawType::renderPassInitialize:
+                    case DrawType::atomicInitialize:
                     case DrawType::msaaStrokes:
                     case DrawType::msaaMidpointFanBorrowedCoverage:
                     case DrawType::msaaMidpointFans:
@@ -2088,30 +1696,6 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                 }
             }
         } // end flush render pass scope
-
-        if (needsBackBuffer)
-        {
-            auto Params =
-                GraphBuilder.AllocParameters<FRiveDrawTextureBltParameters>();
-            Params->RenderTargets[0] =
-                FRenderTargetBinding(targetTexture,
-                                     ERenderTargetLoadAction::ELoad);
-            Params->PS.GLSL_sourceTexture_raw = backBuffer;
-            Params->FlushUniforms = flushUniforms;
-            // If we have a back buffer we need to blend it back into the render
-            // target so use our draw shader because CopyTexture and DrawTexture
-            // don't support blending.
-            AddDrawTextureBlt(GraphBuilder,
-                              VertexDeclarations[static_cast<int>(
-                                  EVertexDeclarations::Resolve)],
-                              FUint32Rect(desc.renderTargetUpdateBounds.left,
-                                          desc.renderTargetUpdateBounds.top,
-                                          desc.renderTargetUpdateBounds.right,
-                                          desc.renderTargetUpdateBounds.bottom),
-                              ShaderMap,
-                              Params);
-        }
-
         static const auto CVarVisualize =
             IConsoleManager::Get().FindConsoleVariable(TEXT("r.rive.vis"));
         switch (CVarVisualize->GetInt())
@@ -2124,13 +1708,11 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                     FIntPoint(renderTarget->width(), renderTarget->height()));
                 break;
             case 2:
-#if !PLATFORM_APPLE
                 AddBltU32ToF4Pass(
                     GraphBuilder,
                     coverageTexture,
                     targetTexture,
                     FIntPoint(renderTarget->width(), renderTarget->height()));
-#endif
                 break;
             case 3:
                 AddBltU324ToF4Pass(
@@ -2154,4 +1736,6 @@ void RenderContextRHIImpl::flush(const FlushDescriptor& desc)
                 break;
         }
     } // End Flush Event Scope
+
+    GraphBuilder.Execute();
 }

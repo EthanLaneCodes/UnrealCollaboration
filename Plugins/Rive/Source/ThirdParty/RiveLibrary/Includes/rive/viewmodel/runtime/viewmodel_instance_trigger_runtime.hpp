@@ -18,7 +18,6 @@ public:
         ViewModelInstanceValueRuntime(viewModelInstance)
     {}
     void trigger();
-    const DataType dataType() override { return DataType::trigger; }
 };
 } // namespace rive
 #endif

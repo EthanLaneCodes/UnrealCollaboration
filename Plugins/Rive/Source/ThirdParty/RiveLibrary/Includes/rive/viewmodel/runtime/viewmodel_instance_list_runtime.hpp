@@ -16,21 +16,18 @@ class ViewModelInstanceListRuntime : public ViewModelInstanceValueRuntime
 {
 
 public:
+    ~ViewModelInstanceListRuntime();
     ViewModelInstanceListRuntime(ViewModelInstanceList* viewModelInstance) :
         ViewModelInstanceValueRuntime(viewModelInstance)
     {}
-    rcp<ViewModelInstanceRuntime> instanceAt(int index);
+    ViewModelInstanceRuntime* instanceAt(int index);
     void addInstance(ViewModelInstanceRuntime*);
-    bool addInstanceAt(ViewModelInstanceRuntime*, int);
     void removeInstance(ViewModelInstanceRuntime*);
     void removeInstanceAt(int);
-    void swap(uint32_t, uint32_t);
     size_t size() const;
-    const DataType dataType() override { return DataType::list; }
 
 private:
-    std::unordered_map<rcp<ViewModelInstanceListItem>,
-                       rcp<ViewModelInstanceRuntime>>
+    std::unordered_map<ViewModelInstanceListItem*, ViewModelInstanceRuntime*>
         m_itemsMap;
 };
 } // namespace rive

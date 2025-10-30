@@ -22,7 +22,6 @@ struct VulkanFeatures
     bool independentBlend = false;
     bool fillModeNonSolid = false;
     bool fragmentStoresAndAtomics = false;
-    bool shaderClipDistance = false;
 
     // EXT_rasterization_order_attachment_access.
     bool rasterizationOrderColorAttachmentAccess = false;
@@ -109,12 +108,12 @@ public:
     // Resource allocation.
     rcp<vkutil::Buffer> makeBuffer(const VkBufferCreateInfo&,
                                    vkutil::Mappability);
-    rcp<vkutil::Image> makeImage(const VkImageCreateInfo&);
-    rcp<vkutil::ImageView> makeImageView(rcp<vkutil::Image>);
-    rcp<vkutil::ImageView> makeImageView(rcp<vkutil::Image>,
-                                         const VkImageViewCreateInfo&);
-    rcp<vkutil::ImageView> makeExternalImageView(const VkImageViewCreateInfo&);
-    rcp<vkutil::Texture2D> makeTexture2D(const VkImageCreateInfo&);
+    rcp<vkutil::Texture> makeTexture(const VkImageCreateInfo&);
+    rcp<vkutil::TextureView> makeTextureView(rcp<vkutil::Texture>);
+    rcp<vkutil::TextureView> makeTextureView(rcp<vkutil::Texture>,
+                                             const VkImageViewCreateInfo&);
+    rcp<vkutil::TextureView> makeExternalTextureView(
+        const VkImageViewCreateInfo&);
     rcp<vkutil::Framebuffer> makeFramebuffer(const VkFramebufferCreateInfo&);
 
     // Helpers.
@@ -154,13 +153,26 @@ public:
                             &imageMemoryBarrier);
     }
 
-    const vkutil::ImageAccess& simpleImageMemoryBarrier(
-        VkCommandBuffer,
-        const vkutil::ImageAccess& srcAccess,
-        const vkutil::ImageAccess& dstAccess,
-        VkImage,
-        vkutil::ImageAccessAction = vkutil::ImageAccessAction::preserveContents,
-        VkDependencyFlags = 0);
+    const vkutil::TextureAccess& simpleImageMemoryBarrier(
+        VkCommandBuffer commandBuffer,
+        const vkutil::TextureAccess& srcAccess,
+        const vkutil::TextureAccess& dstAccess,
+        VkImage image,
+        VkDependencyFlags dependencyFlags = 0)
+    {
+        imageMemoryBarrier(commandBuffer,
+                           srcAccess.pipelineStages,
+                           dstAccess.pipelineStages,
+                           dependencyFlags,
+                           {
+                               .srcAccessMask = srcAccess.accessMask,
+                               .dstAccessMask = dstAccess.accessMask,
+                               .oldLayout = srcAccess.layout,
+                               .newLayout = dstAccess.layout,
+                               .image = image,
+                           });
+        return dstAccess;
+    }
 
     void bufferMemoryBarrier(VkCommandBuffer,
                              VkPipelineStageFlags srcStageMask,
@@ -169,10 +181,8 @@ public:
                              VkBufferMemoryBarrier);
 
     void blitSubRect(VkCommandBuffer commandBuffer,
-                     VkImage srcImage,
-                     VkImageLayout srcImageLayout,
-                     VkImage dstImage,
-                     VkImageLayout dstImageLayout,
+                     VkImage src,
+                     VkImage dst,
                      const IAABB&);
 
 private:

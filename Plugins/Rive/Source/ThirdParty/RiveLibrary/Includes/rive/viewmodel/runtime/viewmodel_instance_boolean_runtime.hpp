@@ -19,7 +19,6 @@ public:
     {}
     bool value() const;
     void value(bool);
-    const DataType dataType() override { return DataType::boolean; }
 };
 } // namespace rive
 #endif

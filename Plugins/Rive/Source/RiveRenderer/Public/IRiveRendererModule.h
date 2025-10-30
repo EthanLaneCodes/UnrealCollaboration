@@ -7,11 +7,6 @@
 
 class IRiveRenderer;
 
-namespace rive
-{
-class CommandQueue;
-}
-
 class IRiveRendererModule : public IModuleInterface
 {
     /**
@@ -27,14 +22,11 @@ public:
      * @return Returns singleton instance, loading the module on demand if
      * needed
      */
-    static IRiveRendererModule& Get()
+    static inline IRiveRendererModule& Get()
     {
         return FModuleManager::LoadModuleChecked<IRiveRendererModule>(
             ModuleName);
     }
-
-    class FRiveRenderer* GetRenderer() const { return RiveRenderer.Get(); }
-    static RIVERENDERER_API struct FRiveCommandBuilder& GetCommandBuilder();
 
     /**
      * Checks to see if this module is loaded and ready.  It is only valid to
@@ -42,13 +34,27 @@ public:
      *
      * @return True if the module is loaded and ready to use
      */
-    static bool IsAvailable()
+    static inline bool IsAvailable()
     {
         return FModuleManager::Get().IsModuleLoaded(ModuleName);
     }
 
-protected:
-    TUniquePtr<FRiveRenderer> RiveRenderer;
+    virtual class IRiveRenderer* GetRenderer() = 0;
+
+    virtual void CallOrRegister_OnRendererInitialized(
+        FSimpleMulticastDelegate::FDelegate&& Delegate) = 0;
+
+    /**
+     * Attribute(s)
+     */
+    // TODO. REMOVE IT!! Temporary switches for Android testng
+    static bool RunInGameThread()
+    {
+#if PLATFORM_ANDROID
+        return true;
+#endif // PLATFORM_ANDROID
+        return false;
+    }
 
 private:
     static constexpr const TCHAR* ModuleName = TEXT("RiveRenderer");

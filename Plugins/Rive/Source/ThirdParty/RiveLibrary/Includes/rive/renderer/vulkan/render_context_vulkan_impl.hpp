@@ -4,50 +4,27 @@
 
 #pragma once
 
-#ifdef RIVE_VULKAN
-
-#include <chrono>
-#include <vulkan/vulkan.h>
 #include "rive/renderer/render_context_impl.hpp"
 #include "rive/renderer/vulkan/vulkan_context.hpp"
+#include <chrono>
+#include <unordered_map>
+#include <vulkan/vulkan.h>
 
 namespace rive::gpu
 {
+class TextureVulkanImpl;
 class RenderTargetVulkanImpl;
-class PipelineManagerVulkan;
+class DrawShaderVulkan;
 
 class RenderContextVulkanImpl : public RenderContextImpl
 {
 public:
-    struct ContextOptions
-    {
-        bool forceAtomicMode = false;
-        ShaderCompilationMode shaderCompilationMode =
-            ShaderCompilationMode::standard;
-    };
-
-    static std::unique_ptr<RenderContext> MakeContext(VkInstance,
-                                                      VkPhysicalDevice,
-                                                      VkDevice,
-                                                      const VulkanFeatures&,
-                                                      PFN_vkGetInstanceProcAddr,
-                                                      const ContextOptions&);
-
     static std::unique_ptr<RenderContext> MakeContext(
-        VkInstance instance,
-        VkPhysicalDevice physicalDevice,
-        VkDevice device,
-        const VulkanFeatures& vulkanFeatures,
-        PFN_vkGetInstanceProcAddr fp_vkGetInstanceProcAddr)
-    {
-        return MakeContext(instance,
-                           physicalDevice,
-                           device,
-                           vulkanFeatures,
-                           fp_vkGetInstanceProcAddr,
-                           ContextOptions{});
-    }
-
+        VkInstance,
+        VkPhysicalDevice,
+        VkDevice,
+        const VulkanFeatures&,
+        PFN_vkGetInstanceProcAddr);
     ~RenderContextVulkanImpl();
 
     VulkanContext* vulkanContext() const { return m_vk.get(); }
@@ -71,11 +48,10 @@ public:
 
 private:
     RenderContextVulkanImpl(rcp<VulkanContext>,
-                            const VkPhysicalDeviceProperties&,
-                            const ContextOptions&);
+                            const VkPhysicalDeviceProperties&);
 
     // Called outside the constructor so we can use virtual methods.
-    void initGPUObjects(ShaderCompilationMode, uint32_t vendorID);
+    void initGPUObjects();
 
     void prepareToFlush(uint64_t nextFrameNumber,
                         uint64_t safeFrameNumber) override;
@@ -159,6 +135,8 @@ private:
     }
 
     const rcp<VulkanContext> m_vk;
+    const uint32_t m_vendorID;
+    const VkFormat m_atlasFormat;
 
     // Rive buffer pools. These don't need to be rcp<> because the destructor of
     // RenderContextVulkanImpl is already synchronized.
@@ -187,33 +165,106 @@ private:
     std::chrono::steady_clock::time_point m_localEpoch =
         std::chrono::steady_clock::now();
 
+    // Immutable samplers.
+    VkSampler m_linearSampler;
+    VkSampler m_mipmapSampler;
+
     // Bound when there is not an image paint.
-    rcp<vkutil::Texture2D> m_nullImageTexture;
+    rcp<TextureVulkanImpl> m_nullImageTexture;
+
+    // With the exception of PLS texture bindings, which differ by interlock
+    // mode, all other shaders use the same shared descriptor set layouts.
+    VkDescriptorSetLayout m_perFlushDescriptorSetLayout;
+    VkDescriptorSetLayout m_perDrawDescriptorSetLayout;
+    VkDescriptorSetLayout m_immutableSamplerDescriptorSetLayout;
+    VkDescriptorSetLayout m_emptyDescriptorSetLayout; // For when a set isn't
+                                                      // used by a shader.
+
+    VkDescriptorPool m_staticDescriptorPool; // For descriptorSets that never
+                                             // change between frames.
+    VkDescriptorSet m_nullImageDescriptorSet;
+    VkDescriptorSet m_immutableSamplerDescriptorSet; // Empty since samplers are
+                                                     // immutable, but also
+                                                     // required by Vulkan.
 
     // Renders color ramps to the gradient texture.
     class ColorRampPipeline;
     std::unique_ptr<ColorRampPipeline> m_colorRampPipeline;
-    rcp<vkutil::Texture2D> m_gradTexture;
+    rcp<vkutil::Texture> m_gradientTexture;
+    rcp<vkutil::TextureView> m_gradTextureView;
     rcp<vkutil::Framebuffer> m_gradTextureFramebuffer;
 
     // Renders tessellated vertices to the tessellation texture.
     class TessellatePipeline;
     std::unique_ptr<TessellatePipeline> m_tessellatePipeline;
     rcp<vkutil::Buffer> m_tessSpanIndexBuffer;
-    rcp<vkutil::Texture2D> m_tessTexture;
+    rcp<vkutil::Texture> m_tessVertexTexture;
+    rcp<vkutil::TextureView> m_tessVertexTextureView;
     rcp<vkutil::Framebuffer> m_tessTextureFramebuffer;
 
     // Renders feathers to the atlas.
     class AtlasPipeline;
     std::unique_ptr<AtlasPipeline> m_atlasPipeline;
-    rcp<vkutil::Texture2D> m_atlasTexture;
+    rcp<vkutil::Texture> m_atlasTexture;
+    rcp<vkutil::TextureView> m_atlasTextureView;
     rcp<vkutil::Framebuffer> m_atlasFramebuffer;
 
     // Coverage buffer used by shaders in clockwiseAtomic mode.
     rcp<vkutil::Buffer> m_coverageBuffer;
 
+    // Rive-specific options for configuring a flush's VkPipelineLayout.
+    enum class DrawPipelineLayoutOptions
+    {
+        none = 0,
+
+        // No need to attach the COLOR texture as an input attachment. There are
+        // no advanced blend modes so we can use built-in hardware blending.
+        fixedFunctionColorOutput = 1 << 0,
+
+        // Use an offscreen texture to render color, but also attach the real
+        // target texture at the COALESCED_ATOMIC_RESOLVE index, and render to
+        // it directly in the atomic resolve step.
+        coalescedResolveAndTransfer = 1 << 1,
+    };
+    constexpr static int DRAW_PIPELINE_LAYOUT_OPTION_COUNT = 2;
+
+    // A VkPipelineLayout for each
+    // interlockMode x [all DrawPipelineLayoutOptions permutations].
+    constexpr static uint32_t DrawPipelineLayoutIdx(
+        gpu::InterlockMode interlockMode,
+        DrawPipelineLayoutOptions options)
+    {
+        return (static_cast<int>(interlockMode)
+                << DRAW_PIPELINE_LAYOUT_OPTION_COUNT) |
+               static_cast<int>(options);
+    }
+    constexpr static int DRAW_PIPELINE_LAYOUT_COUNT =
+        gpu::kInterlockModeCount * (1 << DRAW_PIPELINE_LAYOUT_OPTION_COUNT);
+    constexpr static int DRAW_PIPELINE_LAYOUT_BIT_COUNT =
+        DRAW_PIPELINE_LAYOUT_OPTION_COUNT + 2;
+    static_assert((1 << DRAW_PIPELINE_LAYOUT_BIT_COUNT) >=
+                  DRAW_PIPELINE_LAYOUT_COUNT);
+    static_assert((1 << (DRAW_PIPELINE_LAYOUT_BIT_COUNT - 1)) <
+                  DRAW_PIPELINE_LAYOUT_COUNT);
+    RIVE_DECL_ENUM_BITSET_FRIENDS(DrawPipelineLayoutOptions);
+
+    // VkPipelineLayout wrapper for Rive flushes.
+    class DrawPipelineLayout;
+    std::array<std::unique_ptr<DrawPipelineLayout>, DRAW_PIPELINE_LAYOUT_COUNT>
+        m_drawPipelineLayouts;
+
+    // VkRenderPass wrapper for Rive flushes.
+    class RenderPass;
+    std::unordered_map<uint32_t, std::unique_ptr<RenderPass>> m_renderPasses;
+
+    // VkPipeline wrapper for Rive draw calls.
+    class DrawPipeline;
+    std::unordered_map<uint32_t, std::unique_ptr<DrawShaderVulkan>>
+        m_drawShaders;
+    std::unordered_map<uint64_t, std::unique_ptr<DrawPipeline>> m_drawPipelines;
+
     // Gaussian integral table for feathering.
-    rcp<vkutil::Texture2D> m_featherTexture;
+    rcp<TextureVulkanImpl> m_featherTexture;
 
     rcp<vkutil::Buffer> m_pathPatchVertexBuffer;
     rcp<vkutil::Buffer> m_pathPatchIndexBuffer;
@@ -233,9 +284,6 @@ private:
     };
 
     rcp<DescriptorSetPoolPool> m_descriptorSetPoolPool;
-
-    std::unique_ptr<PipelineManagerVulkan> m_pipelineManager;
 };
+RIVE_MAKE_ENUM_BITSET(RenderContextVulkanImpl::DrawPipelineLayoutOptions);
 } // namespace rive::gpu
-
-#endif

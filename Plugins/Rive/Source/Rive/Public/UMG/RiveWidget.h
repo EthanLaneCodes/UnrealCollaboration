@@ -4,17 +4,12 @@
 
 #include "Blueprint/UserWidget.h"
 #include "Components/Widget.h"
+#include "rive/file.hpp"
 #include "Rive/RiveDescriptor.h"
 #include "Rive/RiveFile.h"
-
-THIRD_PARTY_INCLUDES_START
-#undef PI
-#include "rive/file.hpp"
-THIRD_PARTY_INCLUDES_END
-
 #include "RiveWidget.generated.h"
 
-struct FRiveStateMachine;
+class FRiveStateMachine;
 class URiveTextureObject;
 class URiveArtboard;
 class URiveTexture;
@@ -53,7 +48,6 @@ protected:
     virtual FReply NativeOnMouseMove(
         const FGeometry& InGeometry,
         const FPointerEvent& InMouseEvent) override;
-    virtual void NativeOnMouseLeave(const FPointerEvent& InMouseEvent) override;
     //~ END : UWidget Interface
 
     /**
@@ -65,14 +59,20 @@ public:
     void SetAudioEngine(URiveAudioEngine* InRiveAudioEngine);
 
     UFUNCTION(BlueprintCallable, Category = Rive)
-    void SetArtboard(URiveArtboard* InArtboard);
-
-    UFUNCTION(BlueprintCallable, Category = Rive)
     URiveArtboard* GetArtboard() const;
+
+    UFUNCTION()
+    void OnSWidgetSizeChanged(const FVector2D& NewSize);
+
+    UFUNCTION()
+    void CheckArtboardSize();
 
     /**
      * Attribute(s)
      */
+
+    UPROPERTY(BlueprintAssignable, Category = Rive)
+    FRiveReadyDelegate OnRiveReady;
 
     UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = Rive)
     FRiveDescriptor RiveDescriptor;
@@ -88,16 +88,20 @@ private:
     void Setup();
 
     UFUNCTION()
+    void OnRiveObjectReady();
+
+    UFUNCTION()
     TArray<FString> GetArtboardNamesForDropdown() const;
 
     UFUNCTION()
     TArray<FString> GetStateMachineNamesForDropdown() const;
+    FReply OnInput(const FGeometry& MyGeometry,
+                   const FPointerEvent& MouseEvent,
+                   const TFunction<bool(const FVector2f&, FRiveStateMachine*)>&
+                       InStateMachineInputCallback);
 
     UPROPERTY(Transient)
-    TObjectPtr<URiveArtboard> RiveArtboard;
-
-    UPROPERTY(Transient)
-    TObjectPtr<URiveAudioEngine> RiveAudioEngine;
+    TObjectPtr<URiveTextureObject> RiveTextureObject;
 
     TSharedPtr<SRiveWidget> RiveWidget;
     FTimerHandle TimerHandle;

@@ -22,29 +22,20 @@
                               uniforms.renderTargetInverseViewportY)
 
 #ifdef TESS_TEXTURE_FLOATING_POINT
-#define TEXTURE_TESSDATA4(SET, IDX, NAME)  TEXTURE_RGBA32F(SET, IDX, NAME)
+#define TEXTURE_TESSDATA4  TEXTURE_RGBA32F
 #define TESSDATA4  float4
 #define FLOAT_AS_TESSDATA(X)  X
 #define TESSDATA_AS_FLOAT(X)  X
 #define UINT_AS_TESSDATA(X)  uintBitsToFloat(X)
 #define TESSDATA_AS_UINT(X)  floatBitsToUint(X)
 #else
-#define TEXTURE_TESSDATA4(SET, IDX, NAME)  TEXTURE_RGBA32UI(SET, IDX, NAME)
+#define TEXTURE_TESSDATA4  TEXTURE_RGBA32UI
 #define TESSDATA4  uint4
 #define FLOAT_AS_TESSDATA(X)  floatBitsToUint(X)
 #define TESSDATA_AS_FLOAT(X)  uintBitsToFloat(X)
 #define UINT_AS_TESSDATA(X)  X
 #define TESSDATA_AS_UINT(X)  X
 #endif
-
-// Gathers a 4xN matrix of texels, in the same order as the textureGather() API.
-// clang-format off
-#define TEXTURE_GATHER_MATRIX(NAME, COORD, COMPONENTS)                          \
-    TEXEL_FETCH(NAME, int2(COORD) + int2(-1, 0))COMPONENTS,                    \
-        TEXEL_FETCH(NAME, int2(COORD) + int2(0, 0))COMPONENTS,                 \
-        TEXEL_FETCH(NAME, int2(COORD) + int2(0, -1))COMPONENTS,                \
-        TEXEL_FETCH(NAME, int2(COORD) + int2(-1, -1))COMPONENTS
-// clang-format on
 
 // This is a macro because we can't (at least for now) forward texture refs to a
 // function in a way that works in all the languages we support.
@@ -147,8 +138,6 @@ INLINE half4 make_half4(half x)
     return ret;
 }
 
-INLINE half4 make_half4(half4 x) { return x; }
-
 INLINE bool2 make_bool2(bool b) { return bool2(b, b); }
 
 INLINE half3x3 make_half3x3(half3 a, half3 b, half3 c)
@@ -168,19 +157,14 @@ INLINE half2x3 make_half2x3(half3 a, half3 b)
     return ret;
 }
 
-INLINE half4x4 make_half4x4(half4 a, half4 b, half4 c, half4 d)
-{
-    half4x4 ret;
-    ret[0] = a;
-    ret[1] = b;
-    ret[2] = c;
-    ret[3] = d;
-    return ret;
-}
-
 INLINE float2x2 make_float2x2(float4 x) { return float2x2(x.xy, x.zw); }
 
 INLINE uint make_uint(ushort x) { return x; }
+
+INLINE uint contour_data_idx(uint contourIDWithFlags)
+{
+    return (contourIDWithFlags & CONTOUR_ID_MASK) - 1u;
+}
 
 INLINE float2 unchecked_mix(float2 a, float2 b, float t)
 {
@@ -242,7 +226,6 @@ uint coverageBufferPrefix;
 uint pathIDGranularity; // Spacing between adjacent path IDs (1 if IEEE
                         // compliant).
 float vertexDiscardValue;
-float mipMapLODBias;
 // Debugging.
 uint wireframeEnabled;
 UNIFORM_BLOCK_END(uniforms)
@@ -292,7 +275,7 @@ INLINE float4 find_clip_rect_coverage_distances(float2x2 clipRectInverseMatrix,
     }
 }
 
-#else // !@RENDER_MODE_MSAA => @RENDER_MODE_MSAA
+#else // RENDER_MODE_MSAA
 
 INLINE float normalize_z_index(uint zIndex)
 {
@@ -323,31 +306,8 @@ INLINE void set_clip_rect_plane_distances(float2x2 clipRectInverseMatrix,
     }
 }
 #endif // ENABLE_CLIP_RECT
-
-#endif // @RENDER_MODE_MSAA
+#endif // RENDER_MODE_MSAA
 #endif // VERTEX
-
-#ifdef FRAGMENT
-#ifdef NEEDS_GAMMA_CORRECTION
-half gamma_to_linear(half color)
-{
-    return (color <= 0.04045) ? color / 12.92
-                              : pow(abs((color + 0.055) / 1.055), 2.4);
-}
-
-half3 gamma_to_linear(half3 color)
-{
-    return make_half3(gamma_to_linear(color.x),
-                      gamma_to_linear(color.y),
-                      gamma_to_linear(color.z));
-}
-
-half4 gamma_to_linear(half4 color)
-{
-    return make_half4(gamma_to_linear(color.xyz), color.w);
-}
-#endif // NEEDS_GAMMA_CORRECTION
-#endif // FRAGMENT
 
 #ifdef DRAW_IMAGE
 #ifndef UNIFORM_DEFINITIONS_AUTO_GENERATED

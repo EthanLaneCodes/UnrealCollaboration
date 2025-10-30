@@ -12,7 +12,7 @@
 #include "Interfaces/IPluginManager.h"
 
 THIRD_PARTY_INCLUDES_START
-#include "rive/generated/shaders/rhi.glsl.exports.h"
+#include "rive/generated/shaders/rhi.glsl.hpp"
 THIRD_PARTY_INCLUDES_END
 
 DEFINE_LOG_CATEGORY(LogRiveShaderCompiler);
@@ -184,62 +184,6 @@ void FRiveRDGDrawAtlasVertexShader::ModifyCompilationEnvironment(
     ModifyShaderEnvironment(Params, Environment, true);
 }
 
-void FRiveRDGRasterOrderPathVertexShader::ModifyCompilationEnvironment(
-    const FShaderPermutationParameters& Params,
-    FShaderCompilerEnvironment& Environment)
-{
-    ModifyShaderEnvironment(Params, Environment, true);
-}
-
-void FRiveRDGRasterOrderPathPixelShader::ModifyCompilationEnvironment(
-    const FShaderPermutationParameters& Params,
-    FShaderCompilerEnvironment& Environment)
-{
-    ModifyShaderEnvironment(Params, Environment, false);
-}
-
-void FRiveRDGRasterOrderInteriorTrianglesVertexShader::
-    ModifyCompilationEnvironment(const FShaderPermutationParameters& Params,
-                                 FShaderCompilerEnvironment& Environment)
-{
-    ModifyShaderEnvironment(Params, Environment, true);
-}
-
-void FRiveRDGRasterOrderInteriorTrianglesPixelShader::
-    ModifyCompilationEnvironment(const FShaderPermutationParameters& Params,
-                                 FShaderCompilerEnvironment& Environment)
-{
-    ModifyShaderEnvironment(Params, Environment, false);
-}
-
-void FRiveRDGRasterOrderImageMeshVertexShader::ModifyCompilationEnvironment(
-    const FShaderPermutationParameters& Params,
-    FShaderCompilerEnvironment& Environment)
-{
-    ModifyShaderEnvironment(Params, Environment, true);
-}
-
-void FRiveRDGRasterOrderImageMeshPixelShader::ModifyCompilationEnvironment(
-    const FShaderPermutationParameters& Params,
-    FShaderCompilerEnvironment& Environment)
-{
-    ModifyShaderEnvironment(Params, Environment, false);
-}
-
-void FRiveBltTextureAsDrawVertexShader::ModifyCompilationEnvironment(
-    const FShaderPermutationParameters& Params,
-    FShaderCompilerEnvironment& Environment)
-{
-    ModifyShaderEnvironment(Params, Environment, true);
-}
-
-void FRiveBltTextureAsDrawPixelShader::ModifyCompilationEnvironment(
-    const FShaderPermutationParameters& Params,
-    FShaderCompilerEnvironment& Environment)
-{
-    ModifyShaderEnvironment(Params, Environment, false);
-}
-
 IMPLEMENT_GLOBAL_SHADER(FRiveRDGGradientPixelShader,
                         "/Plugin/Rive/Private/Rive/color_ramp.usf",
                         GLSL_colorRampFragmentMain,
@@ -320,36 +264,6 @@ IMPLEMENT_GLOBAL_SHADER(FRiveRDGAtomicResolveVertexShader,
                         GLSL_drawVertexMain,
                         SF_Vertex);
 
-IMPLEMENT_GLOBAL_SHADER(FRiveRDGRasterOrderPathPixelShader,
-                        "/Plugin/Rive/Private/Rive/draw_path.usf",
-                        GLSL_drawFragmentMain,
-                        SF_Pixel);
-
-IMPLEMENT_GLOBAL_SHADER(FRiveRDGRasterOrderPathVertexShader,
-                        "/Plugin/Rive/Private/Rive/draw_path.usf",
-                        GLSL_drawVertexMain,
-                        SF_Vertex);
-
-IMPLEMENT_GLOBAL_SHADER(FRiveRDGRasterOrderInteriorTrianglesPixelShader,
-                        "/Plugin/Rive/Private/Rive/draw_interior_triangles.usf",
-                        GLSL_drawFragmentMain,
-                        SF_Pixel);
-
-IMPLEMENT_GLOBAL_SHADER(FRiveRDGRasterOrderInteriorTrianglesVertexShader,
-                        "/Plugin/Rive/Private/Rive/draw_interior_triangles.usf",
-                        GLSL_drawVertexMain,
-                        SF_Vertex);
-
-IMPLEMENT_GLOBAL_SHADER(FRiveRDGRasterOrderImageMeshPixelShader,
-                        "/Plugin/Rive/Private/Rive/draw_image_mesh.usf",
-                        GLSL_drawFragmentMain,
-                        SF_Pixel);
-
-IMPLEMENT_GLOBAL_SHADER(FRiveRDGRasterOrderImageMeshVertexShader,
-                        "/Plugin/Rive/Private/Rive/draw_image_mesh.usf",
-                        GLSL_drawVertexMain,
-                        SF_Vertex);
-
 IMPLEMENT_GLOBAL_SHADER(FRiveRDGDrawAtlasFillPixelShader,
                         "/Plugin/Rive/Private/Rive/draw_atlas_fill.usf",
                         GLSL_atlasFillFragmentMain,
@@ -358,16 +272,6 @@ IMPLEMENT_GLOBAL_SHADER(FRiveRDGDrawAtlasFillPixelShader,
 IMPLEMENT_GLOBAL_SHADER(FRiveRDGDrawAtlasStrokePixelShader,
                         "/Plugin/Rive/Private/Rive/draw_atlas_stroke.usf",
                         GLSL_atlasStrokeFragmentMain,
-                        SF_Pixel);
-
-IMPLEMENT_GLOBAL_SHADER(FRiveBltTextureAsDrawVertexShader,
-                        "/Plugin/Rive/Private/Rive/blend_texture.usf",
-                        GLSL_blitVertexMain,
-                        SF_Vertex);
-
-IMPLEMENT_GLOBAL_SHADER(FRiveBltTextureAsDrawPixelShader,
-                        "/Plugin/Rive/Private/Rive/blend_texture.usf",
-                        GLSL_blitFragmentMain,
                         SF_Pixel);
 
 // this could be either draw_atlas usf file,

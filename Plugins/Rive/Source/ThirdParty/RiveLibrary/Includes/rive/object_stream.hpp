@@ -4,8 +4,7 @@
 
 #pragma once
 
-#include "rive/refcnt.hpp"
-
+#include "rive/math/math_types.hpp"
 #include <cassert>
 #include <deque>
 
@@ -39,42 +38,49 @@ private:
 // Stream for recording objects of any trivially-copyable type, using C++-style
 // "<<" ">>" operators. Object types must be read back in the same order they
 // were writen.
-class PODStream
+class TrivialObjectStream
 {
 public:
     bool empty() const { return m_byteStream.empty(); }
 
-    template <typename T> PODStream& operator<<(T obj)
+    template <typename T> TrivialObjectStream& operator<<(T obj)
     {
-        static_assert(std::is_pod<T>(),
-                      "PODStream only accepts plain-old-data types");
-        const char* data = reinterpret_cast<const char*>(&obj);
-        m_byteStream.insert(m_byteStream.end(), data, data + sizeof(T));
+        static_assert(
+            std::is_trivially_copyable<T>(),
+            "TrivialObjectStream only accepts trivially copyable types");
+        char* ptr = &(*m_byteStream.insert(m_byteStream.end(), sizeof(T), 0));
+        if (uintptr_t pad = math::padding_to_align_up<T>(ptr))
+        {
+            // Recalculate 'ptr' based on the iterator. If the deque grew with
+            // this operation, the old ptr will be invalid.
+            ptr = &(*m_byteStream.insert(m_byteStream.end(), pad, 0)) + pad -
+                  sizeof(T);
+        }
+        assert(reinterpret_cast<uintptr_t>(ptr) % alignof(T) == 0);
+        new (ptr) T(std::move(obj));
         return *this;
     }
 
-    template <typename T> PODStream& operator>>(T& dst)
+    template <typename T> TrivialObjectStream& operator>>(T& dst)
     {
-        static_assert(std::is_pod<T>(),
-                      "PODStream only accepts plain-old-data types");
-        assert(m_byteStream.size() >= sizeof(T));
-        char* data = reinterpret_cast<char*>(&dst);
-        std::copy(m_byteStream.begin(), m_byteStream.begin() + sizeof(T), data);
+        static_assert(
+            std::is_pod<T>(),
+            "TrivialObjectStream only accepts trivially copyable types");
+        assert(!empty());
+        char* ptr = &m_byteStream.front();
+        if (uintptr_t pad = math::padding_to_align_up<T>(&m_byteStream.front()))
+        {
+            assert(m_byteStream.size() >= pad);
+            m_byteStream.erase(m_byteStream.begin(),
+                               m_byteStream.begin() + pad);
+            ptr = &m_byteStream.front();
+        }
+        assert(reinterpret_cast<uintptr_t>(ptr) % alignof(T) == 0);
+        auto obj = reinterpret_cast<T*>(ptr);
+        dst = std::move(*obj);
+        obj->~T();
         m_byteStream.erase(m_byteStream.begin(),
                            m_byteStream.begin() + sizeof(T));
-        return *this;
-    }
-
-    template <typename T> PODStream& operator<<(rcp<T> obj)
-    {
-        return *this << obj.release();
-    }
-
-    template <typename T> PODStream& operator>>(rcp<T>& obj)
-    {
-        T* raw;
-        *this >> raw;
-        obj = rcp<T>(raw);
         return *this;
     }
 

@@ -65,50 +65,20 @@ struct D3D11DrawVertexShader
     ComPtr<ID3D11VertexShader> shader;
 };
 
-struct D3D11DrawPixelShader
-{
-    ComPtr<ID3D11PixelShader> shader;
-};
-
-struct D3D11DrawPipeline
-{
-    using VertexShaderType = D3D11DrawVertexShader;
-    using FragmentShaderType = D3D11DrawPixelShader;
-    using PipelineProps = gpu::StandardPipelineProps;
-
-    VertexShaderType m_vertexShader;
-    FragmentShaderType m_pixelShader;
-
-    bool succeeded() const
-    {
-        return m_vertexShader.shader != nullptr &&
-               m_pixelShader.shader != nullptr;
-    }
-};
-
 class D3D11PipelineManager
-    : public D3DPipelineManager<D3D11DrawPipeline, ID3D11Device>
+    : public D3DPipelineManager<D3D11DrawVertexShader,
+                                ComPtr<ID3D11PixelShader>,
+                                ID3D11Device>
 {
-    using Super = D3DPipelineManager<D3D11DrawPipeline, ID3D11Device>;
-
 public:
-    D3D11PipelineManager(ComPtr<ID3D11DeviceContext>,
-                         ComPtr<ID3D11Device>,
-                         const D3DCapabilities&,
-                         ShaderCompilationMode);
+    D3D11PipelineManager(ComPtr<ID3D11DeviceContext> context,
+                         ComPtr<ID3D11Device> device,
+                         const D3DCapabilities& capabilities);
 
-    ~D3D11PipelineManager() { shutdownBackgroundThread(); }
-
-    [[nodiscard]] bool setPipelineState(DrawType,
-                                        ShaderFeatures,
-                                        InterlockMode,
-                                        ShaderMiscFlags,
-                                        const PlatformFeatures&
-#ifdef WITH_RIVE_TOOLS
-                                        ,
-                                        SynthesizedFailureType
-#endif
-    );
+    void setPipelineState(rive::gpu::DrawType,
+                          rive::gpu::ShaderFeatures,
+                          rive::gpu::InterlockMode,
+                          rive::gpu::ShaderMiscFlags);
 
     void setColorRampState() const
     {
@@ -141,16 +111,10 @@ public:
     }
 
 protected:
-    virtual std::unique_ptr<D3D11DrawPixelShader>
-        compilePixelShaderBlobToFinalType(ComPtr<ID3DBlob>) override;
-
-    virtual std::unique_ptr<D3D11DrawVertexShader>
-        compileVertexShaderBlobToFinalType(DrawType, ComPtr<ID3DBlob>) override;
-
-    virtual std::unique_ptr<D3D11DrawPipeline> linkPipeline(
-        const PipelineProps&,
-        const D3D11DrawVertexShader&,
-        const D3D11DrawPixelShader&) override;
+    virtual void compileBlobToFinalType(const ShaderCompileRequest&,
+                                        ComPtr<ID3DBlob> vertexShader,
+                                        ComPtr<ID3DBlob> pixelShader,
+                                        ShaderCompileResult*) override;
 
 private:
     ComPtr<ID3D11DeviceContext> m_context;
@@ -203,8 +167,7 @@ public:
 private:
     RenderContextD3DImpl(ComPtr<ID3D11Device>,
                          ComPtr<ID3D11DeviceContext>,
-                         const D3DCapabilities&,
-                         const D3DContextOptions&);
+                         const D3DCapabilities&);
 
     rcp<RenderBuffer> makeRenderBuffer(RenderBufferType,
                                        RenderBufferFlags,
@@ -277,8 +240,7 @@ private:
     ComPtr<ID3D11Buffer> m_imageDrawUniforms;
 
     ComPtr<ID3D11SamplerState> m_linearSampler;
-    ComPtr<ID3D11SamplerState>
-        m_samplerStates[rive::ImageSampler::MAX_SAMPLER_PERMUTATIONS];
+    ComPtr<ID3D11SamplerState> m_mipmapSampler;
 
     ComPtr<ID3D11RasterizerState> m_atlasRasterState;
     ComPtr<ID3D11RasterizerState> m_backCulledRasterState[2];

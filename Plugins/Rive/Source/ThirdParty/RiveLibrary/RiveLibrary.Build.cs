@@ -34,7 +34,7 @@ public class RiveLibrary : ModuleRules
     public RiveLibrary(ReadOnlyTargetRules Target) : base(Target)
     {
         Type = ModuleType.External;
-        CppStandard = CppStandardVersion.Cpp20;
+        CppStandard = CppStandardVersion.Cpp17;
 		
         PrivateDependencyModuleNames.Add("Vulkan");
 

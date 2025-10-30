@@ -57,22 +57,11 @@ TEXTURE_R16F_1D_ARRAY(PER_FLUSH_BINDINGS_SET,
                       _EXPORTED_featherTexture);
 #endif
 #ifdef ATLAS_BLIT
-#ifdef ATLAS_TEXTURE_R32UI_FLOAT_BITS
-TEXTURE_R32UI(PER_FLUSH_BINDINGS_SET, ATLAS_TEXTURE_IDX, _EXPORTED_atlasTexture);
-#elif defined(ATLAS_TEXTURE_R32I_FIXED_POINT)
-TEXTURE_R32I(PER_FLUSH_BINDINGS_SET, ATLAS_TEXTURE_IDX, _EXPORTED_atlasTexture);
-#elif defined(ATLAS_TEXTURE_RGBA8_UNORM)
-TEXTURE_RGBA8(PER_FLUSH_BINDINGS_SET, ATLAS_TEXTURE_IDX, _EXPORTED_atlasTexture);
-#else
-TEXTURE_R16F(PER_FLUSH_BINDINGS_SET, ATLAS_TEXTURE_IDX, _EXPORTED_atlasTexture);
-#endif
+TEXTURE_R16F(PER_DRAW_BINDINGS_SET, ATLAS_TEXTURE_IDX, _EXPORTED_atlasTexture);
 #endif
 TEXTURE_RGBA8(PER_DRAW_BINDINGS_SET, IMAGE_TEXTURE_IDX, _EXPORTED_imageTexture);
-// The Qualcomm compiler can't handle line breaks in #ifs.
-// clang-format off
-#if defined(RENDER_MODE_MSAA) && defined(ENABLE_ADVANCED_BLEND) && !defined(FIXED_FUNCTION_COLOR_OUTPUT)
-// clang-format on
-DST_COLOR_TEXTURE(_EXPORTED_dstColorTexture);
+#if defined(RENDER_MODE_MSAA) && defined(ENABLE_ADVANCED_BLEND)
+TEXTURE_RGBA8(PER_FLUSH_BINDINGS_SET, DST_COLOR_TEXTURE_IDX, _EXPORTED_dstColorTexture);
 #endif
 FRAG_TEXTURE_BLOCK_END
 
@@ -82,9 +71,7 @@ SAMPLER_LINEAR(GRAD_TEXTURE_IDX, gradSampler)
 #ifdef ATLAS_BLIT
 SAMPLER_LINEAR(ATLAS_TEXTURE_IDX, atlasSampler)
 #endif
-DYNAMIC_SAMPLER_BLOCK_BEGIN
-SAMPLER_DYNAMIC(PER_DRAW_BINDINGS_SET, IMAGE_SAMPLER_IDX, imageSampler)
-DYNAMIC_SAMPLER_BLOCK_END
+SAMPLER_MIPMAP(IMAGE_TEXTURE_IDX, imageSampler)
 #endif // @FRAGMENT
 
 // We distinguish between strokes and fills by the sign of coverages.y,
@@ -275,38 +262,10 @@ filter_feather_atlas(float2 atlasCoord,
     // Gather from the exact center of the quad to make sure there are no
     // rounding differences between us and the texture unit.
     float2 atlasQuadCenter = round(atlasCoord);
-    half4 coverages;
-#ifdef ATLAS_TEXTURE_R32UI_FLOAT_BITS
-    coverages = uintBitsToFloat(uint4(TEXTURE_GATHER(_EXPORTED_atlasTexture,
-                                                     atlasSampler,
-                                                     atlasQuadCenter,
-                                                     atlasTextureInverseSize)));
-#elif defined(ATLAS_TEXTURE_R32I_FIXED_POINT)
-    int4 coverages_i32 = int4(TEXTURE_GATHER(_EXPORTED_atlasTexture,
-                                             atlasSampler,
-                                             atlasQuadCenter,
-                                             atlasTextureInverseSize));
-    coverages = float4(coverages_i32) * (1. / ATLAS_R32I_FIXED_POINT_FACTOR);
-#elif defined(ATLAS_TEXTURE_RGBA8_UNORM)
-    int2 coord = int2(atlasQuadCenter);
-    half4x4 coverages_u8x4 =
-        make_half4x4(TEXTURE_GATHER_MATRIX(_EXPORTED_atlasTexture, coord, .xyzw));
-    // Apply the following weights to the RGBA of each u8x4 coverage value:
-    //   - R counts fractional, positive coverage.
-    //   - G counts fractional, negative coverage.
-    //   - B counts integer, positive coverage.
-    //   - A counts integer, negative coverage.
-    coverages = make_half4(ATLAS_UNORM8_COVERAGE_SCALE_FACTOR,
-                           -ATLAS_UNORM8_COVERAGE_SCALE_FACTOR,
-                           255.,
-                           -255.) *
-                coverages_u8x4;
-#else
-    coverages = make_half4(TEXTURE_GATHER(_EXPORTED_atlasTexture,
-                                          atlasSampler,
-                                          atlasQuadCenter,
-                                          atlasTextureInverseSize));
-#endif
+    half4 coverages = TEXTURE_GATHER(_EXPORTED_atlasTexture,
+                                     atlasSampler,
+                                     atlasQuadCenter,
+                                     atlasTextureInverseSize);
     // Convert each pixel from gaussian space back to linear.
     coverages = make_half4(INVERSE_FEATHER(coverages.x),
                            INVERSE_FEATHER(coverages.y),
@@ -367,11 +326,9 @@ INLINE bool unpack_tessellated_path_vertex(float4 patchVertexData,
     uint contourIDWithFlags = TESSDATA_AS_UINT(tessVertexData.w);
 
     // Fetch and unpack the contour referenced by the tessellation vertex.
-    // NOTE: The contourID is guaranteed to be >= 1 at this point, but clamp it
-    // anyway because in the event of a bug, a buffer load at index "0u - 1" can
-    // be very serious and hard to catch.
-    uint contourID = max(contourIDWithFlags & CONTOUR_ID_MASK, 1u);
-    uint4 contourData = STORAGE_BUFFER_LOAD4(_EXPORTED_contourBuffer, contourID - 1u);
+    uint4 contourData =
+        STORAGE_BUFFER_LOAD4(_EXPORTED_contourBuffer,
+                             contour_data_idx(contourIDWithFlags));
     float2 midpoint = uintBitsToFloat(contourData.xy);
     outPathID = contourData.z & 0xffffu;
     uint vertexIndex0 = contourData.w;
@@ -817,11 +774,7 @@ INLINE bool unpack_tessellated_path_vertex(float4 patchVertexData,
         if (bool(contourIDWithFlags & MIRRORED_CONTOUR_CONTOUR_FLAG) !=
             bool(contourIDWithFlags & NEGATE_PATH_FILL_COVERAGE_FLAG))
         {
-            // Effectively: outCoverages.x = -outCoverages.x
-            //
-            // ... But don't write that because it hits a bug in the Mali T720
-            // compiler that also negates Y.
-            outCoverages *= float4(-1., +1., +1., +1.);
+            outCoverages.x = -outCoverages.x;
         }
 #endif // !RENDER_MODE_MSAA
 

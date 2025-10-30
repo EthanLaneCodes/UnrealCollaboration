@@ -8,8 +8,6 @@
 #include <wrl/client.h>
 #include <system_error>
 
-#include "rive/renderer/render_context.hpp"
-
 using Microsoft::WRL::ComPtr;
 
 #define VERIFY_OK(CODE)                                                        \
@@ -40,8 +38,6 @@ struct D3DCapabilities
 
 struct D3DContextOptions
 {
-    ShaderCompilationMode shaderCompilationMode =
-        ShaderCompilationMode::standard;
     bool disableRasterizerOrderedViews = false; // Primarily for testing.
     bool disableTypedUAVLoadStore = false;      // Primarily for testing.
     bool isIntel = false;

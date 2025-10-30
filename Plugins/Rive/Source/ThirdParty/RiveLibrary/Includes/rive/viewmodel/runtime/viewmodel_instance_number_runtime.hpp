@@ -18,7 +18,6 @@ public:
     {}
     float value() const;
     void value(float);
-    const DataType dataType() override { return DataType::number; }
 };
 } // namespace rive
 #endif

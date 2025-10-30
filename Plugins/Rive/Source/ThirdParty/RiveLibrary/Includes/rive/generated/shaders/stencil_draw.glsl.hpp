@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stencil_draw.glsl.exports.h"
+#include "stencil_draw.exports.h"
 
 namespace rive {
 namespace gpu {

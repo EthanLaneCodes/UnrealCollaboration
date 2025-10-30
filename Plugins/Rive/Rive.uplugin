@@ -1,13 +1,14 @@
 ﻿{
     "FileVersion":  3,
-    "Version":  6,
-    "VersionName":  "0.4.6t-gh",
+    "Version":  7,
+    "VersionName":  "0.3.7a",
     "FriendlyName":  "Rive",
     "Description":  "A Unreal Engine runtime library for Rive.",
     "Category":  "Rive",
     "CreatedBy":  "Rive, Inc.",
     "CreatedByURL":  "https://rive.app/",
     "DocsURL":  "https://rive.app/docs/getting-started/introduction",
+    "FabURL":  "com.epicgames.launcher://ue/Fab/product/4a79a0af-7614-42bd-8857-5375c2668706",
     "MarketplaceURL":  "",
     "SupportURL":  "https://community.rive.app/",
     "CanContainContent":  true,
@@ -23,10 +24,7 @@
                                                   "Win64",
                                                   "Mac",
                                                   "IOS"
-                                              ],
-                        "BlacklistTargets":  [
-                                                 "Server"
-                                             ]
+                                              ]
                     },
                     {
                         "Name":  "RiveShaders",
@@ -36,10 +34,7 @@
                                                   "Win64",
                                                   "Mac",
                                                   "IOS"
-                                              ],
-                        "BlacklistTargets":  [
-                                                 "Server"
-                                             ]
+                                              ]
                     },
                     {
                         "Name":  "RiveStats",
@@ -49,10 +44,7 @@
                                                   "Win64",
                                                   "Mac",
                                                   "IOS"
-                                              ],
-                        "BlacklistTargets":  [
-                                                 "Server"
-                                             ]
+                                              ]
                     },
                     {
                         "Name":  "RiveRenderer",
@@ -62,10 +54,7 @@
                                                   "Win64",
                                                   "Mac",
                                                   "IOS"
-                                              ],
-                        "BlacklistTargets":  [
-                                                 "Server"
-                                             ]
+                                              ]
                     },
                     {
                         "Name":  "RiveEditor",
@@ -76,11 +65,6 @@
                                                   "Mac",
                                                   "IOS"
                                               ]
-                    },
-                    {
-                        "Name":  "RiveEditorNodes",
-                        "Type":  "UncookedOnly",
-                        "LoadingPhase":  "Default"
                     }
                 ]
 }

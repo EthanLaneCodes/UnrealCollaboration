@@ -44,11 +44,9 @@ protected:
     GLState* state() const { return m_state.get(); }
 
 private:
-#ifndef RIVE_WEBGL
     // Returns whether glMapBufferRange() is supported for our buffer. If not,
     // we use m_fallbackMappedMemory.
     bool canMapBuffer() const;
-#endif
 
     const GLenum m_target;
     GLuint m_bufferID = 0;

@@ -7,146 +7,100 @@
 #include "Logs/RiveRendererLog.h"
 #include "RenderingThread.h"
 #include "TextureResource.h"
-#include "rive/command_server.hpp"
 #include "UObject/Package.h"
-#include "RiveStats.h"
-#include "Platform/RenderContextRHIImpl.hpp"
 
-THIRD_PARTY_INCLUDES_START
-#undef PI
-#include "rive/renderer/render_context.hpp"
-THIRD_PARTY_INCLUDES_END
+// #include "rive/renderer/render_context.hpp"
 
-FRiveRenderer::FRiveRenderer() :
-    CommandQueue(rive::make_rcp<rive::CommandQueue>()),
-    CommandBuilder(CommandQueue)
-{
-    RIVE_DEBUG_FUNCTION_INDENT;
-
-    OnBeingFrameGameThreadHandle = FCoreDelegates::OnBeginFrame.AddRaw(
-        this,
-        &FRiveRenderer::BeginFrameGameThread);
-    OnEndFrameGameThreadHandle =
-        FCoreDelegates::OnEndFrame.AddRaw(this,
-                                          &FRiveRenderer::EndFrameGameThread);
-
-    ENQUEUE_RENDER_COMMAND(FRiveRenderer_Initialize)
-    ([this](FRHICommandListImmediate& RHICmdList) {
-        CreateRenderContext(RHICmdList);
-        check(RenderContext);
-        CommandServer =
-            MakeUnique<rive::CommandServer>(CommandQueue, RenderContext.get());
-        OnBeingFrameRenderThreadHandle = FCoreDelegates::OnBeginFrameRT.AddRaw(
-            this,
-            &FRiveRenderer::BeginFrameRenderThread);
-    });
-}
+FRiveRenderer::FRiveRenderer() { RIVE_DEBUG_FUNCTION_INDENT; }
 
 FRiveRenderer::~FRiveRenderer()
 {
     RIVE_DEBUG_FUNCTION_INDENT;
+    InitializationState = ERiveInitState::Deinitializing;
 
     if (!IsRunningCommandlet())
     {
+
         if (RenderContext)
         {
+            FScopeLock Lock(&ThreadDataCS);
             RenderContext->releaseResources();
         }
     }
 
-    CommandQueue->disconnect();
-
     FlushRenderingCommands();
-    FCoreDelegates::OnBeginFrame.Remove(OnBeingFrameGameThreadHandle);
-    FCoreDelegates::OnBeginFrame.Remove(OnEndFrameGameThreadHandle);
-    FCoreDelegates::OnBeginFrameRT.Remove(OnBeingFrameRenderThreadHandle);
 }
 
-DECLARE_GPU_STAT_NAMED(BeingFrameRenderThread,
-                       TEXT("FRiveRenderer::BeingFrameRenderThread"));
-void FRiveRenderer::BeginFrameRenderThread()
+void FRiveRenderer::Initialize()
 {
-    SCOPED_GPU_STAT(GRHICommandList.GetImmediateCommandList(),
-                    BeingFrameRenderThread);
+    check(IsInGameThread());
 
-    check(IsInRenderingThread());
-    check(CommandServer);
-#if WITH_EDITOR
-    static const auto CVarInterlock =
-        IConsoleManager::Get().FindConsoleVariable(TEXT("r.rive.interlock"));
-    static int32 LastCVar = 0;
-    int32 CVar = CVarInterlock->GetInt();
-    if (LastCVar != CVar)
+    FScopeLock Lock(&ThreadDataCS);
+    if (InitializationState != ERiveInitState::Uninitialized)
     {
-        LastCVar = CVar;
-        if (auto impl = RenderContext->static_impl_cast<RenderContextRHIImpl>())
-        {
-            impl->updateFromInterlockCVar(CVar);
-        }
+        return;
     }
-#endif
+    InitializationState = ERiveInitState::Initializing;
 
-    SCOPED_NAMED_EVENT_TEXT(TEXT("CommandServer->processCommands"),
-                            FColor::White);
-    DECLARE_SCOPE_CYCLE_COUNTER(TEXT("CommandServer->processCommands"),
-                                STAT_COMMANDSERVER_PROCESSCOMMANDS,
-                                STATGROUP_Rive);
-
-    CommandServer->processCommands();
+    ENQUEUE_RENDER_COMMAND(FRiveRenderer_Initialize)
+    ([this](FRHICommandListImmediate& RHICmdList) {
+        CreateRenderContext_RenderThread(RHICmdList);
+        AsyncTask(ENamedThreads::GameThread, [this]() {
+            {
+                FScopeLock Lock(&ThreadDataCS);
+                InitializationState = ERiveInitState::Initialized;
+            }
+            OnInitializedDelegate.Broadcast(this);
+        });
+    });
 }
 
-void FRiveRenderer::BeginFrameGameThread()
+#if WITH_RIVE
+
+void FRiveRenderer::CallOrRegister_OnInitialized(
+    FOnRendererInitialized::FDelegate&& Delegate)
 {
-    check(IsInGameThread());
-    check(CommandQueue);
+    ThreadDataCS.Lock();
+    const bool bIsInitialized = IsInitialized();
+    ThreadDataCS.Unlock();
 
-    SCOPED_NAMED_EVENT_TEXT(TEXT("CommandQueue->processMessages"),
-                            FColor::White);
-    DECLARE_SCOPE_CYCLE_COUNTER(TEXT("CommandQueue->processMessages"),
-                                STAT_COMMANDQUEUE_PROCESSMESSAGES,
-                                STATGROUP_Rive);
-
-    CommandBuilder.Reset();
-    CommandQueue->processMessages();
-}
-
-void FRiveRenderer::EndFrameGameThread()
-{
-    check(IsInGameThread());
-    check(CommandQueue);
-
-    SCOPED_NAMED_EVENT_TEXT(TEXT("CommandBuilder.Execute"), FColor::White);
-    DECLARE_SCOPE_CYCLE_COUNTER(TEXT("CommandBuilder.Execute"),
-                                STAT_RIVECOMMANDBUILDER_EXECUTE,
-                                STATGROUP_Rive);
-
-    CommandBuilder.Execute();
+    if (bIsInitialized)
+    {
+        Delegate.Execute(this);
+    }
+    else
+    {
+        OnInitializedDelegate.Add(MoveTemp(Delegate));
+    }
 }
 
 rive::gpu::RenderContext* FRiveRenderer::GetRenderContext()
 {
-    check(IsInRenderingThread());
-    check(RenderContext);
+    if (!RenderContext)
+    {
+        UE_LOG(LogRiveRenderer,
+               Error,
+               TEXT("Rive Render Context is uninitialized."));
+        return nullptr;
+    }
+
     return RenderContext.get();
 }
 
-TSharedPtr<FRiveRenderTarget> FRiveRenderer::CreateRenderTarget(
-    const FName& InRiveName,
-    FRenderTarget* RenderTarget)
-{
-    UE_LOG(LogRiveRenderer,
-           Error,
-           TEXT("CreateRenderTarget with FRenderTarget is not supported"));
-    return nullptr;
-}
+#endif // WITH_RIVE
 
-TSharedPtr<FRiveRenderTarget> FRiveRenderer::CreateRenderTarget(
-    FRDGBuilder& GraphBuilder,
-    const FName& InRiveName,
-    FRDGTextureRef InRenderTarget)
+UTextureRenderTarget2D* FRiveRenderer::CreateDefaultRenderTarget(
+    FIntPoint InTargetSize)
 {
-    UE_LOG(LogRiveRenderer,
-           Error,
-           TEXT("CreateRenderTarget with FRDGTexture is not supported"));
-    return nullptr;
+    UTextureRenderTarget2D* const RenderTarget =
+        NewObject<UTextureRenderTarget2D>(GetTransientPackage());
+
+    RenderTarget->OverrideFormat = EPixelFormat::PF_R8G8B8A8;
+    RenderTarget->bCanCreateUAV = true;
+    RenderTarget->ResizeTarget(InTargetSize.X, InTargetSize.Y);
+    RenderTarget->UpdateResourceImmediate(true);
+
+    FlushRenderingCommands();
+
+    return RenderTarget;
 }

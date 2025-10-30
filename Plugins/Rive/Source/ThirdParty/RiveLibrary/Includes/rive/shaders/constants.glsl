@@ -32,11 +32,6 @@
 // need at least one segment, thus a minimum of 2 (plus helper vertices).
 #define FEATHER_JOIN_MIN_SEGMENT_COUNT (2u + FEATHER_JOIN_HELPER_SEGMENT_COUNT)
 
-// The feather texture doesn't begin and end on 0 and 1. These are the actual
-// values that get returned by FEATHER(0) and FEATHER(1) respectively.
-#define MIN_FEATHER float(0.00137615203857421875)
-#define MAX_FEATHER float(0.99853515625)
-
 // Width to use for a texture that emulates a storage buffer.
 //
 // Minimize width since the texture needs to be updated in entire rows from the
@@ -148,16 +143,15 @@
 #define FEATHER_TEXTURE_IDX 10
 #define ATLAS_TEXTURE_IDX 11
 #define IMAGE_TEXTURE_IDX 12
-#define IMAGE_SAMPLER_IDX 13
-#define DST_COLOR_TEXTURE_IDX 14
-#define DEFAULT_BINDINGS_SET_SIZE 15
+#define DST_COLOR_TEXTURE_IDX 13
+#define DEFAULT_BINDINGS_SET_SIZE 14
 
 // Metal doesn't allow us to bind buffers index 0 or 1. Offset them by 2.
 #define METAL_BUFFER_IDX(IDX) (2 + IDX)
 
 // Samplers are accessed at the same index as their corresponding texture, so we
 // put them in a separate binding set.
-#define IMMUTABLE_SAMPLER_BINDINGS_SET 2
+#define SAMPLER_BINDINGS_SET 2
 
 // PLS textures are accessed at the same index as their PLS planes, so we put
 // them in a separate binding set.
@@ -171,19 +165,7 @@
 #define SCRATCH_COLOR_PLANE_IDX 2
 #define COVERAGE_PLANE_IDX 3
 #define PLS_PLANE_COUNT 4
-
-// This is the framebuffer attachment index of the final color output during the
-// "coalesced" atomic resolve. (Currently only used by Vulkan.)
-// NOTE: This attachment is still referenced as color attachment 0 by the
-// resolve subpass, so the shader doesn't need to know about it.
-// NOTE: Atomic mode does not use SCRATCH_COLOR_PLANE_IDX, which is why we chose
-// to alias this one.
-#define COALESCED_ATOMIC_RESOLVE_IDX SCRATCH_COLOR_PLANE_IDX
-
-// MSAA attaches different resources to the framebuffer instead of PLS planes.
-#define MSAA_DEPTH_STENCIL_IDX 1u
-#define MSAA_RESOLVE_IDX 2u
-#define MSAA_COLOR_SEED_IDX 3u
+#define DEPTH_STENCIL_IDX PLS_PLANE_COUNT
 
 // Rive has a hard-coded miter limit of 4 in the editor and all runtimes.
 #define RIVE_MITER_LIMIT float(4)
@@ -257,12 +239,3 @@
 #define BORROWED_COVERAGE_PREPASS_SPECIALIZATION_IDX 8
 #define VULKAN_VENDOR_ID_SPECIALIZATION_IDX 9
 #define SPECIALIZATION_COUNT 10
-
-// When rendering to an r32i feather atlas, use 16:16 fixed point.
-#define ATLAS_R32I_FIXED_POINT_FACTOR 65536.
-
-// When we have to fall back on an 8-bit color buffer to render the feather
-// atlas, sacrifice precision to lessen overflows.
-// Throwing away the bottom 3 bits seems to be the best tradeoff, based on our
-// golden image suite.
-#define ATLAS_UNORM8_COVERAGE_SCALE_FACTOR 8.

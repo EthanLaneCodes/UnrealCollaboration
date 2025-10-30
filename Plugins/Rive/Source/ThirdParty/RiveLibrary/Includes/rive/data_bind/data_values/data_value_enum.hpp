@@ -1,28 +1,31 @@
 #ifndef _RIVE_DATA_VALUE_ENUM_HPP_
 #define _RIVE_DATA_VALUE_ENUM_HPP_
 #include "rive/data_bind/data_values/data_value.hpp"
-#include "rive/data_bind/data_values/data_value_integer.hpp"
 #include "rive/viewmodel/data_enum.hpp"
 
 #include <iostream>
 namespace rive
 {
-class DataValueEnum : public DataValueInteger
+class DataValueEnum : public DataValue
 {
 private:
+    uint32_t m_value = 0;
     DataEnum* m_dataEnum;
 
 public:
     DataValueEnum(uint32_t value, DataEnum* dataEnum) :
-        DataValueInteger(value), m_dataEnum(dataEnum) {};
-    DataValueEnum() {};
+        m_value(value), m_dataEnum(dataEnum){};
+    DataValueEnum(){};
     static const DataType typeKey = DataType::enumType;
     bool isTypeOf(DataType typeKey) const override
     {
-        return typeKey == DataType::enumType || typeKey == DataType::integer;
+        return typeKey == DataType::enumType;
     };
+    uint32_t value() { return m_value; };
+    void value(uint32_t value) { m_value = value; };
     DataEnum* dataEnum() { return m_dataEnum; };
     void dataEnum(DataEnum* value) { m_dataEnum = value; };
+    static const uint32_t defaultValue = 0;
 };
 } // namespace rive
 #endif

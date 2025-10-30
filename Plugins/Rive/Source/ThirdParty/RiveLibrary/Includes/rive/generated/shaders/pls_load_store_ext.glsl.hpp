@@ -1,6 +1,6 @@
 #pragma once
 
-#include "pls_load_store_ext.glsl.exports.h"
+#include "pls_load_store_ext.exports.h"
 
 namespace rive {
 namespace gpu {
@@ -22,9 +22,6 @@ void main()
                            equal(gl_VertexID & ivec2(1, 2), ivec2(0))),
                        0,
                        1);
-#ifdef _EXPORTED_POST_INVERT_Y
-    gl_Position.y = -gl_Position.y;
-#endif
 }
 #endif
 

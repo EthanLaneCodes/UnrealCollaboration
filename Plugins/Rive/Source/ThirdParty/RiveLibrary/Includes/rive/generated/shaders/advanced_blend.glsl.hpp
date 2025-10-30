@@ -1,6 +1,6 @@
 #pragma once
 
-#include "advanced_blend.glsl.exports.h"
+#include "advanced_blend.exports.h"
 
 namespace rive {
 namespace gpu {

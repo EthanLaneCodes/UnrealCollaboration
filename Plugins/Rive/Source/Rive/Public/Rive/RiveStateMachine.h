@@ -3,75 +3,85 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "RiveCommandBuilder.h"
 
 #if WITH_RIVE
 
-struct FRiveDescriptor;
-struct FRiveCommandBuilder;
-#include "Input/Events.h"
-#include "Layout/Geometry.h"
-
 THIRD_PARTY_INCLUDES_START
-#include "rive/command_queue.hpp"
-#include "rive/event_report.hpp"
+#include "rive/artboard.hpp"
+#include "rive/animation/state_machine_instance.hpp"
 THIRD_PARTY_INCLUDES_END
 #endif // WITH_RIVE
 
-class URiveViewModel;
+class URiveViewModelInstance;
 
 /**
  * Represents a Rive State Machine from an Artboard. A State Machine contains
  * Inputs.
  */
-struct RIVE_API FRiveStateMachine : public TSharedFromThis<FRiveStateMachine>
+class RIVE_API FRiveStateMachine
 {
-    bool IsValid() const
+    /**
+     * Structor(s)
+     */
+
+public:
+    FRiveStateMachine() = default;
+
+    ~FRiveStateMachine() = default;
+
+    const std::unique_ptr<rive::StateMachineInstance>&
+    GetNativeStateMachinePtr() const
     {
-        return NativeStateMachineHandle != RIVE_NULL_HANDLE;
+        return NativeStateMachinePtr;
     }
 
-    void Destroy(FRiveCommandBuilder& CommandBuilder);
-    void Initialize(FRiveCommandBuilder& CommandBuilder,
-                    rive::ArtboardHandle InOwningArtboardHandle,
-                    const FString& StateMachineName);
+    bool IsValid() const { return NativeStateMachinePtr != nullptr; }
+#if WITH_RIVE
 
-    void Advance(FRiveCommandBuilder&, float InSeconds);
+    explicit FRiveStateMachine(rive::ArtboardInstance* InNativeArtboardInst,
+                               const FString& InStateMachineName);
+
+    /**
+     * Implementation(s)
+     */
+
+public:
+    bool Advance(float InSeconds);
 
     uint32 GetInputCount() const;
 
+    rive::SMIInput* GetInput(uint32 AtIndex) const;
+
     void FireTrigger(const FString& InPropertyName) const;
 
-    bool PointerDown(const FGeometry& MyGeometry,
-                     const FRiveDescriptor& InDescriptor,
-                     const FPointerEvent& MouseEvent);
+    bool GetBoolValue(const FString& InPropertyName) const;
 
-    bool PointerMove(const FGeometry& MyGeometry,
-                     const FRiveDescriptor& InDescriptor,
-                     const FPointerEvent& MouseEvent);
+    float GetNumberValue(const FString& InPropertyName) const;
 
-    bool PointerUp(const FGeometry& MyGeometry,
-                   const FRiveDescriptor& InDescriptor,
-                   const FPointerEvent& MouseEvent);
+    void SetBoolValue(const FString& InPropertyName, bool bNewValue);
 
-    bool PointerExit(const FGeometry& InGeometry,
-                     const FRiveDescriptor& InDescriptor,
-                     const FPointerEvent& MouseEvent);
+    void SetNumberValue(const FString& InPropertyName, float NewValue);
 
-    void BindViewModel(TObjectPtr<URiveViewModel> ViewModel);
+    bool PointerDown(const FVector2f& NewPosition);
+
+    bool PointerMove(const FVector2f& NewPosition);
+
+    bool PointerUp(const FVector2f& NewPosition);
+
+    bool PointerExit(const FVector2f& NewPosition);
 
     const rive::EventReport GetReportedEvent(int32 AtIndex) const;
 
-    void SetStateMachineSettled(bool inStateMachineSettled);
+    int32 GetReportedEventsCount() const;
 
-    bool IsStateMachineSettled() const { return bStateMachineSettled; }
+    bool HasAnyReportedEvents() const;
 
+    void SetViewModelInstance(URiveViewModelInstance* RuntimeInstance);
+
+    /**
+     * Attribute(s)
+     */
     const FString& GetStateMachineName() const { return StateMachineName; }
-
-    rive::StateMachineHandle GetNativeStateMachineHandle() const
-    {
-        return NativeStateMachineHandle;
-    }
 
     TArray<FString> BoolInputNames;
     TArray<FString> NumberInputNames;
@@ -79,7 +89,10 @@ struct RIVE_API FRiveStateMachine : public TSharedFromThis<FRiveStateMachine>
 
 private:
     FString StateMachineName;
-    rive::StateMachineHandle NativeStateMachineHandle = RIVE_NULL_HANDLE;
+
+    std::unique_ptr<rive::StateMachineInstance> NativeStateMachinePtr = nullptr;
+
     static rive::EventReport NullEvent;
-    bool bStateMachineSettled = false;
+
+#endif // WITH_RIVE
 };

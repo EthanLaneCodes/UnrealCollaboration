@@ -23,17 +23,17 @@ public:
     // barrier if necessary.
     virtual VkImage accessTargetImage(
         VkCommandBuffer,
-        const vkutil::ImageAccess& dstAccess,
-        vkutil::ImageAccessAction =
-            vkutil::ImageAccessAction::preserveContents) = 0;
+        const vkutil::TextureAccess& dstAccess,
+        vkutil::TextureAccessAction =
+            vkutil::TextureAccessAction::preserveContents) = 0;
 
     // Returns the target image view, with its image in the requested layout,
     // performing a pipeline barrier if necessary.
     virtual VkImageView accessTargetImageView(
         VkCommandBuffer,
-        const vkutil::ImageAccess& dstAccess,
-        vkutil::ImageAccessAction =
-            vkutil::ImageAccessAction::preserveContents) = 0;
+        const vkutil::TextureAccess& dstAccess,
+        vkutil::TextureAccessAction =
+            vkutil::TextureAccessAction::preserveContents) = 0;
 
 protected:
     friend class RenderContextVulkanImpl;
@@ -44,35 +44,39 @@ protected:
                        VkFormat framebufferFormat,
                        VkImageUsageFlags targetUsageFlags);
 
-    // Returns the offscreen texture in the requested layout, performing a
+    // Returns the offscreen image in the requested layout, performing a
     // pipeline barrier if necessary.
-    vkutil::Texture2D* accessOffscreenColorTexture(
+    VkImage accessOffscreenColorTexture(
         VkCommandBuffer,
-        const vkutil::ImageAccess& dstAccess,
-        vkutil::ImageAccessAction =
-            vkutil::ImageAccessAction::preserveContents);
+        const vkutil::TextureAccess& dstAccess,
+        vkutil::TextureAccessAction =
+            vkutil::TextureAccessAction::preserveContents);
 
-    // Copies the target image into the offscreen color texture (for the
-    // intended purpose of supporting gpu::LoadAction::preserveRenderTarget).
-    // Returns the offscreen texture in the requested layout, performing a
-    // pipeline barrier if necessary.
-    vkutil::Texture2D* copyTargetImageToOffscreenColorTexture(
+    // Returns the offscreen image view, with its image in the requested layout,
+    // performing a pipeline barrier if necessary.
+    VkImageView accessOffscreenColorTextureView(
         VkCommandBuffer,
-        const vkutil::ImageAccess& dstAccess,
-        const IAABB& copyBounds);
+        const vkutil::TextureAccess& dstAccess,
+        vkutil::TextureAccessAction =
+            vkutil::TextureAccessAction::preserveContents);
 
     // InterlockMode::rasterOrdering.
-    vkutil::Texture2D* clipTextureR32UI();
-    vkutil::Texture2D* scratchColorTexture();
-    vkutil::Texture2D* coverageTexture();
+    vkutil::Texture* clipTextureR32UI();
+    vkutil::TextureView* clipTextureViewR32UI();
+    vkutil::Texture* scratchColorTexture();
+    vkutil::TextureView* scratchColorTextureView();
+    vkutil::Texture* coverageTexture();
+    vkutil::TextureView* coverageTextureView();
 
     // InterlockMode::atomics.
-    vkutil::Texture2D* clipTextureRGBA8();
-    vkutil::Texture2D* coverageAtomicTexture();
+    vkutil::Texture* clipTextureRGBA8();
+    vkutil::TextureView* clipTextureViewRGBA8();
+    vkutil::Texture* coverageAtomicTexture();
+    vkutil::TextureView* coverageAtomicTextureView();
 
     // InterlockMode::msaa.
-    vkutil::Texture2D* msaaColorTexture();
-    vkutil::Texture2D* msaaDepthStencilTexture();
+    vkutil::Texture* depthStencilTexture();
+    vkutil::TextureView* depthStencilTextureView();
 
     const rcp<VulkanContext> m_vk;
     const VkFormat m_framebufferFormat;
@@ -80,20 +84,27 @@ protected:
 
     // Used when m_targetTextureView does not have
     // VK_ACCESS_INPUT_ATTACHMENT_READ_BIT
-    rcp<vkutil::Texture2D> m_offscreenColorTexture;
+    rcp<vkutil::Texture> m_offscreenColorTexture;
+    rcp<vkutil::TextureView> m_offscreenColorTextureView;
+    vkutil::TextureAccess m_offscreenLastAccess;
 
     // InterlockMode::rasterOrdering.
-    rcp<vkutil::Texture2D> m_clipTextureR32UI;
-    rcp<vkutil::Texture2D> m_scratchColorTexture;
-    rcp<vkutil::Texture2D> m_coverageTexture;
+    rcp<vkutil::Texture> m_clipTextureR32UI;
+    rcp<vkutil::TextureView> m_clipTextureViewR32UI;
+    rcp<vkutil::Texture> m_scratchColorTexture;
+    rcp<vkutil::TextureView> m_scratchColorTextureView;
+    rcp<vkutil::Texture> m_coverageTexture;
+    rcp<vkutil::TextureView> m_coverageTextureView;
 
     // InterlockMode::atomics.
-    rcp<vkutil::Texture2D> m_clipTextureRGBA8;
-    rcp<vkutil::Texture2D> m_coverageAtomicTexture;
+    rcp<vkutil::Texture> m_clipTextureRGBA8;
+    rcp<vkutil::TextureView> m_clipTextureViewRGBA8;
+    rcp<vkutil::Texture> m_coverageAtomicTexture;
+    rcp<vkutil::TextureView> m_coverageAtomicTextureView;
 
     // InterlockMode::msaa.
-    rcp<vkutil::Texture2D> m_msaaColorTexture;
-    rcp<vkutil::Texture2D> m_msaaDepthStencilTexture;
+    rcp<vkutil::Texture> m_depthStencilTexture;
+    rcp<vkutil::TextureView> m_depthStencilTextureView;
 };
 
 class RenderTargetVulkanImpl : public RenderTargetVulkan
@@ -113,33 +124,33 @@ public:
 
     void setTargetImageView(VkImageView imageView,
                             VkImage image,
-                            vkutil::ImageAccess targetLastAccess)
+                            vkutil::TextureAccess targetLastAccess)
     {
         m_targetImageView = imageView;
         m_targetImage = image;
         m_targetLastAccess = targetLastAccess;
     }
 
-    const vkutil::ImageAccess& targetLastAccess() const
+    const vkutil::TextureAccess& targetLastAccess() const
     {
         return m_targetLastAccess;
     }
 
     VkImage accessTargetImage(
         VkCommandBuffer,
-        const vkutil::ImageAccess& dstAccess,
-        vkutil::ImageAccessAction =
-            vkutil::ImageAccessAction::preserveContents) override;
+        const vkutil::TextureAccess& dstAccess,
+        vkutil::TextureAccessAction =
+            vkutil::TextureAccessAction::preserveContents) override;
 
     VkImageView accessTargetImageView(
         VkCommandBuffer,
-        const vkutil::ImageAccess& dstAccess,
-        vkutil::ImageAccessAction =
-            vkutil::ImageAccessAction::preserveContents) override;
+        const vkutil::TextureAccess& dstAccess,
+        vkutil::TextureAccessAction =
+            vkutil::TextureAccessAction::preserveContents) override;
 
 private:
     VkImageView m_targetImageView = VK_NULL_HANDLE;
     VkImage m_targetImage = VK_NULL_HANDLE;
-    vkutil::ImageAccess m_targetLastAccess;
+    vkutil::TextureAccess m_targetLastAccess;
 };
 } // namespace rive::gpu

@@ -36,16 +36,6 @@ class Gradient;
 class RenderContextImpl;
 class PathDraw;
 
-enum class ShaderCompilationMode
-{
-    allowAsynchronous,
-    alwaysSynchronous,
-    onlyUbershaders,
-
-    // The default mode is to allow asynchronous compilation where available.
-    standard = allowAsynchronous,
-};
-
 // Used as a key for complex gradients.
 class GradientContentKey
 {
@@ -112,14 +102,6 @@ public:
         // Override all paths' fill rules (winding or even/odd) to emulate
         // clockwiseAtomic mode.
         bool clockwiseFillOverride = false;
-#ifdef WITH_RIVE_TOOLS
-        // Synthesize compilation failures to make sure the device handles them
-        // gracefully. (e.g., by falling back on an uber shader or at least not
-        // crashing.) Valid compilations may fail in the real world if the
-        // device is pressed for resources or in a bad state.
-        gpu::SynthesizedFailureType synthesizedFailureType =
-            gpu::SynthesizedFailureType::none;
-#endif
     };
 
     // Called at the beginning of a frame and establishes where and how it will
@@ -221,7 +203,6 @@ public:
         // Command buffer that rendering commands will be added to.
         //  - VkCommandBuffer on Vulkan.
         //  - id<MTLCommandBuffer> on Metal.
-        //  - WGPUCommandEncoder on WebGPU.
         //  - Unused otherwise.
         void* externalCommandBuffer = nullptr;
 

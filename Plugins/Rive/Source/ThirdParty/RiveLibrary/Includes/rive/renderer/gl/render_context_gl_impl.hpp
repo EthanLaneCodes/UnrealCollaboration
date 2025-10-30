@@ -4,10 +4,10 @@
 
 #pragma once
 
-#include "rive/renderer/async_pipeline_manager.hpp"
 #include "rive/renderer/gl/gl_state.hpp"
 #include "rive/renderer/gl/gl_utils.hpp"
 #include "rive/renderer/render_context_helper_impl.hpp"
+#include <map>
 
 namespace rive
 {
@@ -25,8 +25,6 @@ class RenderContextGLImpl : public RenderContextHelperImpl
 public:
     struct ContextOptions
     {
-        ShaderCompilationMode shaderCompilationMode =
-            ShaderCompilationMode::standard;
         bool disablePixelLocalStorage = false;
         bool disableFragmentShaderInterlock = false;
     };
@@ -72,38 +70,6 @@ public:
                                         uint32_t renderTargetHeight);
 
     GLState* state() const { return m_state.get(); }
-
-    // Storage type and rendering method for the feather atlas.
-    //
-    // Ideally we would always use r32f or r16f, but floating point color
-    // buffers are only supported via extensions in GL.
-    //
-    // These are sorted with the most preferred types higher up in the list.
-    enum class AtlasType
-    {
-        r32f, // Most preferred. Uses HW blending to count coverage.
-        r16f, // Uses HW blending but loses precision on complex feathers.
-
-        r32uiFramebufferFetch, // Stores coverage as fp32 bits in a uint.
-        r32uiPixelLocalStorage,
-
-        r32iAtomicTexture, // Stores coverage as 16:16 fixed point.
-
-        rgba8, // Low quality, but always supported. Uses HW blending and breaks
-               // up coverage into all 4 components of an RGBA texture.
-    };
-
-    AtlasType atlasType() const { return m_atlasType; }
-
-#ifdef WITH_RIVE_TOOLS
-    // Changes the context's AtlasType for testing purposes. If atlasDesiredType
-    // is not supported, the next supported AtlasType down the list is chosen.
-    //
-    // NOTE: this also calls releaseResources() on the owning RenderContext to
-    // ensure the atlas texture gets reallocated.
-    void testingOnly_resetAtlasDesiredType(RenderContext* owningRenderContext,
-                                           AtlasType atlasDesiredType);
-#endif
 
 private:
     class DrawProgram;
@@ -175,15 +141,11 @@ private:
     static std::unique_ptr<RenderContext> MakeContext(
         const char* rendererString,
         GLCapabilities,
-        std::unique_ptr<PixelLocalStorageImpl>,
-        ShaderCompilationMode);
+        std::unique_ptr<PixelLocalStorageImpl>);
 
     RenderContextGLImpl(const char* rendererString,
                         GLCapabilities,
-                        std::unique_ptr<PixelLocalStorageImpl>,
-                        ShaderCompilationMode);
-
-    void buildAtlasRenderPipelines();
+                        std::unique_ptr<PixelLocalStorageImpl>);
 
     std::unique_ptr<BufferRing> makeUniformBufferRing(
         size_t capacityInBytes) override;
@@ -196,8 +158,6 @@ private:
     void resizeGradientTexture(uint32_t width, uint32_t height) override;
     void resizeTessellationTexture(uint32_t width, uint32_t height) override;
     void resizeAtlasTexture(uint32_t width, uint32_t height) override;
-
-    void preBeginFrame(RenderContext*) override;
 
     void flush(const FlushDescriptor&) override;
 
@@ -236,7 +196,7 @@ private:
     glutils::Framebuffer m_tessellateFBO;
     GLuint m_tessVertexTexture = 0;
 
-    // Renders feathers to the atlas texture.
+    // Atlas rendering.
     class AtlasProgram
     {
     public:
@@ -260,73 +220,49 @@ private:
         GLint m_baseInstanceUniformLocation = -1;
     };
 
-    // Atlas rendering pipelines.
-    AtlasType m_atlasType;
     glutils::Shader m_atlasVertexShader;
     AtlasProgram m_atlasFillProgram;
     AtlasProgram m_atlasStrokeProgram;
-    gpu::PipelineState m_atlasFillPipelineState;
-    gpu::PipelineState m_atlasStrokePipelineState;
-#ifdef RIVE_ANDROID
-    // Pipelines for clearing and resolving EXT_shader_pixel_local_storage.
-    glutils::Shader m_atlasResolveVertexShader;
-    glutils::Program m_atlasClearProgram = glutils::Program::Zero();
-    glutils::Program m_atlasResolveProgram = glutils::Program::Zero();
-    glutils::VAO m_atlasResolveVAO;
-#endif
     glutils::Texture m_atlasTexture = glutils::Texture::Zero();
     glutils::Framebuffer m_atlasFBO;
 
-    // Wraps a compiled GL "draw" shader, either vertex or fragment, with a
-    // specific set of features enabled via #define. The set of features to
-    // enable is dictated by ShaderFeatures.
+    // Wraps a compiled GL shader of draw_path.glsl or draw_image_mesh.glsl,
+    // either vertex or fragment, with a specific set of features enabled via
+    // #define. The set of features to enable is dictated by ShaderFeatures.
     class DrawShader
     {
     public:
-        DrawShader() = default;
         DrawShader(const DrawShader&) = delete;
         DrawShader& operator=(const DrawShader&) = delete;
-        DrawShader(DrawShader&&);
-        DrawShader& operator=(DrawShader&&);
 
         DrawShader(RenderContextGLImpl* renderContextImpl,
                    GLenum shaderType,
                    gpu::DrawType drawType,
-                   gpu::ShaderFeatures shaderFeatures,
+                   ShaderFeatures shaderFeatures,
                    gpu::InterlockMode interlockMode,
                    gpu::ShaderMiscFlags shaderMiscFlags);
 
-        ~DrawShader();
+        ~DrawShader() { glDeleteShader(m_id); }
 
         GLuint id() const { return m_id; }
 
     private:
-        GLuint m_id = 0;
+        GLuint m_id;
     };
 
-    // Wraps a compiled and linked GL "draw" program, with a specific set of
-    // features enabled via #define. The set of features to enable is dictated
-    // by ShaderFeatures.
+    // Wraps a compiled and linked GL program of draw_path.glsl or
+    // draw_image_mesh.glsl, with a specific set of features enabled via
+    // #define. The set of features to enable is dictated by ShaderFeatures.
     class DrawProgram
     {
     public:
-        using PipelineProps = StandardPipelineProps;
-        using VertexShaderType = DrawShader;
-        using FragmentShaderType = DrawShader;
-
         DrawProgram(const DrawProgram&) = delete;
         DrawProgram& operator=(const DrawProgram&) = delete;
         DrawProgram(RenderContextGLImpl*,
-                    PipelineCreateType,
                     gpu::DrawType,
                     gpu::ShaderFeatures,
                     gpu::InterlockMode,
-                    gpu::ShaderMiscFlags
-#ifdef WITH_RIVE_TOOLS
-                    ,
-                    SynthesizedFailureType
-#endif
-        );
+                    gpu::ShaderMiscFlags);
         ~DrawProgram();
 
         GLuint id() const { return m_id; }
@@ -335,63 +271,17 @@ private:
             return m_baseInstanceUniformLocation;
         }
 
-        PipelineStatus status() const { return m_pipelineStatus; }
-
-        bool advanceCreation(RenderContextGLImpl*,
-                             PipelineCreateType,
-                             gpu::DrawType,
-                             gpu::ShaderFeatures,
-                             gpu::InterlockMode,
-                             gpu::ShaderMiscFlags);
-
     private:
-        const DrawShader* m_fragmentShader = nullptr;
-        const DrawShader* m_vertexShader = nullptr;
-        PipelineStatus m_pipelineStatus = PipelineStatus::notReady;
-        GLuint m_id = 0;
+        DrawShader m_fragmentShader;
+        GLuint m_id;
         GLint m_baseInstanceUniformLocation = -1;
         const rcp<GLState> m_state;
-#ifdef WITH_RIVE_TOOLS
-        SynthesizedFailureType m_synthesizedFailureType =
-            SynthesizedFailureType::none;
-#endif
     };
 
-    class GLPipelineManager : public AsyncPipelineManager<DrawProgram>
-    {
-        using Super = AsyncPipelineManager<DrawProgram>;
-
-    public:
-        GLPipelineManager(ShaderCompilationMode, RenderContextGLImpl*);
-
-    protected:
-        virtual std::unique_ptr<DrawShader> createVertexShader(
-            DrawType,
-            ShaderFeatures,
-            InterlockMode) override;
-
-        virtual std::unique_ptr<DrawShader> createFragmentShader(
-            DrawType,
-            ShaderFeatures,
-            InterlockMode,
-            ShaderMiscFlags) override;
-
-        virtual std::unique_ptr<DrawProgram> createPipeline(
-            PipelineCreateType createType,
-            uint32_t key,
-            const PipelineProps&) override;
-
-        virtual PipelineStatus getPipelineStatus(
-            const DrawProgram& state) const override;
-
-        virtual bool advanceCreation(DrawProgram&,
-                                     const PipelineProps&) override;
-
-    private:
-        RenderContextGLImpl* m_context;
-    };
-
-    GLPipelineManager m_pipelineManager;
+    // Not all programs have a unique vertex shader, so we cache and reuse them
+    // where possible.
+    std::map<uint32_t, DrawShader> m_vertexShaders;
+    std::map<uint32_t, DrawProgram> m_drawPrograms;
 
     // Vertex/index buffers for drawing paths.
     glutils::VAO m_drawVAO;
@@ -412,7 +302,5 @@ private:
     glutils::Program m_blitAsDrawProgram = glutils::Program::Zero();
 
     const rcp<GLState> m_state;
-
-    bool m_testForAdvancedBlendError = false;
 };
 } // namespace rive::gpu

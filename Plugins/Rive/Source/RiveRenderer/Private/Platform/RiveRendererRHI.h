@@ -6,27 +6,12 @@
 class RIVERENDERER_API FRiveRendererRHI : public FRiveRenderer
 {
 public:
-    FRiveRendererRHI();
-
-    virtual TSharedPtr<FRiveRenderTarget> CreateRenderTarget(
+    //~ BEGIN : IRiveRenderer Interface
+    virtual TSharedPtr<IRiveRenderTarget> CreateTextureTarget_GameThread(
         const FName& InRiveName,
         UTexture2DDynamic* InRenderTarget) override;
-
-    virtual TSharedPtr<FRiveRenderTarget> CreateRenderTarget(
-        const FName& InRiveName,
-        UTextureRenderTarget2D* InRenderTarget) override;
-
-    virtual TSharedPtr<FRiveRenderTarget> CreateRenderTarget(
-        FRDGBuilder& GraphBuilder,
-        const FName& InRiveName,
-        FRDGTextureRef InRenderTarget) override;
-
-    virtual TSharedPtr<FRiveRenderTarget> CreateRenderTarget(
-        const FName& InRiveName,
-        FRenderTarget* RenderTarget) override;
-
-    virtual void CreateRenderContext(
+    virtual void CreateRenderContext_RenderThread(
         FRHICommandListImmediate& RHICmdList) override;
-
     virtual void Flush(rive::gpu::RenderContext& context) {}
+    //~ END : IRiveRenderer Interface
 };

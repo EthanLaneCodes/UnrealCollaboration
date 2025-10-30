@@ -12,8 +12,6 @@
 #include "rive/viewmodel/viewmodel_instance_viewmodel.hpp"
 #include "rive/viewmodel/viewmodel_instance_list_item.hpp"
 #include "rive/animation/keyframe_interpolator.hpp"
-#include "rive/data_bind/converters/data_converter.hpp"
-#include "rive/refcnt.hpp"
 #include <vector>
 #include <set>
 #include <unordered_map>
@@ -24,12 +22,10 @@
 namespace rive
 {
 class BinaryReader;
-class DataBind;
 class RuntimeHeader;
 class Factory;
 class ScrollPhysics;
 class ViewModelRuntime;
-class BindableArtboard;
 
 ///
 /// Tracks the success/failure result when importing a Rive file.
@@ -47,7 +43,7 @@ enum class ImportResult
 ///
 /// A Rive file.
 ///
-class File : public RefCnt<File>
+class File
 {
 public:
     /// Major version number supported by the runtime.
@@ -55,13 +51,11 @@ public:
     /// Minor version number supported by the runtime.
     static const int minorVersion = 0;
 
-    File(Factory*, rcp<FileAssetLoader>);
+    File(Factory*, FileAssetLoader*);
 
 public:
     ~File();
-#if defined(DEBUG) && defined(WITH_RIVE_TOOLS)
-    static size_t debugTotalFileCount;
-#endif
+
     ///
     /// Imports a Rive file from a binary buffer.
     /// @param data the raw date of the file.
@@ -69,18 +63,10 @@ public:
     /// @param assetLoader is an optional helper to load assets which
     /// cannot be found in-band.
     /// @returns a pointer to the file, or null on failure.
-    static rcp<File> import(Span<const uint8_t> data,
-                            Factory* factory,
-                            ImportResult* result = nullptr,
-                            FileAssetLoader* assetLoader = nullptr)
-    {
-        return import(data, factory, result, ref_rcp(assetLoader));
-    }
-
-    static rcp<File> import(Span<const uint8_t> data,
-                            Factory*,
-                            ImportResult* result,
-                            rcp<FileAssetLoader> assetLoader);
+    static std::unique_ptr<File> import(Span<const uint8_t> data,
+                                        Factory*,
+                                        ImportResult* result = nullptr,
+                                        FileAssetLoader* assetLoader = nullptr);
 
     /// @returns the file's backboard. All files have exactly one backboard.
     Backboard* backboard() const { return m_backboard; }
@@ -89,15 +75,12 @@ public:
     size_t artboardCount() const { return m_artboards.size(); }
     std::string artboardNameAt(size_t index) const;
 
-    Span<const rcp<FileAsset>> assets() const;
+    const std::vector<FileAsset*>& assets() const;
 
     // Instances
     std::unique_ptr<ArtboardInstance> artboardDefault() const;
     std::unique_ptr<ArtboardInstance> artboardAt(size_t index) const;
     std::unique_ptr<ArtboardInstance> artboardNamed(std::string name) const;
-    rcp<BindableArtboard> bindableArtboardNamed(std::string name) const;
-    rcp<BindableArtboard> bindableArtboardDefault() const;
-    rcp<BindableArtboard> internalBindableArtboardFromArtboard(Artboard*) const;
 
     Artboard* artboard() const;
 
@@ -152,12 +135,12 @@ public:
         Artboard* artboard);
     void completeViewModelInstance(
         rcp<ViewModelInstance> viewModelInstance,
-        std::unordered_map<ViewModelInstance*, rcp<ViewModelInstance>>&
+        std::unordered_map<ViewModelInstance*, rcp<ViewModelInstance>>
             instancesMap) const;
     void completeViewModelInstance(
         rcp<ViewModelInstance> viewModelInstance) const;
     const std::vector<DataEnum*>& enums() const;
-    rcp<FileAsset> asset(size_t index);
+    FileAsset* asset(size_t index);
 
     std::vector<Artboard*> artboards() { return m_artboards; };
 
@@ -173,13 +156,6 @@ public:
         ImportResult* result = nullptr);
 #endif
 
-#ifdef TESTING
-    FileAssetLoader* testing_getAssetLoader() const
-    {
-        return m_assetLoader.get();
-    }
-#endif
-
 private:
     ImportResult read(BinaryReader&, const RuntimeHeader&);
 
@@ -188,7 +164,7 @@ private:
     Backboard* m_backboard;
 
     /// We just keep these alive for the life of this File
-    std::vector<rcp<FileAsset>> m_fileAssets;
+    std::vector<FileAsset*> m_fileAssets;
 
     std::vector<DataConverter*> m_DataConverters;
 
@@ -208,21 +184,21 @@ private:
     /// reference to instances created by users.
     std::vector<ViewModelInstance*> m_ViewModelInstances;
 
-    mutable std::vector<rcp<ViewModelRuntime>> m_viewModelRuntimes;
+    mutable std::vector<ViewModelRuntime*> m_viewModelRuntimes;
     std::vector<DataEnum*> m_Enums;
 
     Factory* m_factory;
 
     /// The helper used to load assets when they're not provided in-band
     /// with the file.
-    rcp<FileAssetLoader> m_assetLoader;
+    FileAssetLoader* m_assetLoader;
 
     rcp<ViewModelInstance> copyViewModelInstance(
         ViewModelInstance* viewModelInstance,
-        std::unordered_map<ViewModelInstance*, rcp<ViewModelInstance>>&
+        std::unordered_map<ViewModelInstance*, rcp<ViewModelInstance>>
             instancesMap) const;
 
-    rcp<ViewModelRuntime> createViewModelRuntime(ViewModel* viewModel) const;
+    ViewModelRuntime* createViewModelRuntime(ViewModel* viewModel) const;
 
     uint32_t findViewModelId(ViewModel* search) const;
 };

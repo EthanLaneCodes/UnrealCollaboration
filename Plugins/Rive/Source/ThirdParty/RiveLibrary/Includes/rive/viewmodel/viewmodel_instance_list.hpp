@@ -9,19 +9,18 @@ class ViewModelInstanceList : public ViewModelInstanceListBase
 {
 public:
     ~ViewModelInstanceList();
-    void addItem(rcp<ViewModelInstanceListItem> listItem);
-    bool addItemAt(rcp<ViewModelInstanceListItem> listItem, int index);
-    void internalAddItem(rcp<ViewModelInstanceListItem> listItem);
+    void addItem(ViewModelInstanceListItem* listItem);
+    void internalAddItem(ViewModelInstanceListItem* listItem);
+    void insertItem(int index, ViewModelInstanceListItem* listItem);
     void removeItem(int index);
-    void removeItem(rcp<ViewModelInstanceListItem> listItem);
-    Span<rcp<ViewModelInstanceListItem>> listItems() { return m_ListItems; }
-    rcp<ViewModelInstanceListItem> item(uint32_t index);
+    void removeItem(ViewModelInstanceListItem* listItem);
+    std::vector<ViewModelInstanceListItem*> listItems() { return m_ListItems; };
+    ViewModelInstanceListItem* item(uint32_t index);
     void swap(uint32_t index1, uint32_t index2);
     Core* clone() const override;
-    void advanced() override;
 
 protected:
-    std::vector<rcp<ViewModelInstanceListItem>> m_ListItems;
+    std::vector<ViewModelInstanceListItem*> m_ListItems;
     void propertyValueChanged();
 };
 } // namespace rive

@@ -9,9 +9,6 @@ class CoreDoubleType
 public:
     static const int id = 2;
     static float deserialize(BinaryReader& reader);
-#ifdef WITH_RIVE_TOOLS
-    static float deserializeRev(BinaryReader& reader);
-#endif
 };
 } // namespace rive
 #endif

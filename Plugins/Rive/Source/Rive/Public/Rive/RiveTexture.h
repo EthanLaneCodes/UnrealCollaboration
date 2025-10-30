@@ -22,11 +22,12 @@ class RIVE_API URiveTexture : public UTexture2DDynamic
 {
     GENERATED_BODY()
 
-DECLARE_MULTICAST_DELEGATE_TwoParams(FOnResourceInitializedOnRenderThread,
-                                     FRHICommandListImmediate& /*RHICmdList*/,
-                                     FTextureRHIRef& /*NewResource*/)
+    DECLARE_MULTICAST_DELEGATE_TwoParams(
+        FOnResourceInitializedOnRenderThread,
+        FRHICommandListImmediate& /*RHICmdList*/,
+        FTextureRHIRef& /*NewResource*/)
 
-    public : URiveTexture();
+        public : URiveTexture();
 
     //~ BEGIN : UTexture Interface
     virtual FTextureResource* CreateResource() override;

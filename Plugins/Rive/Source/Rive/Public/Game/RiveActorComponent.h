@@ -2,13 +2,14 @@
 
 #pragma once
 
+#include "IRiveRenderTarget.h"
 #include "RiveTypes.h"
 #include "Components/ActorComponent.h"
 #include "Rive/RiveArtboard.h"
 #include "Rive/RiveDescriptor.h"
 #include "RiveActorComponent.generated.h"
 
-class FRiveRenderer;
+class IRiveRenderer;
 class URiveAudioEngine;
 class URiveTexture;
 class URiveArtboard;
@@ -51,6 +52,10 @@ public:
     UPROPERTY(BlueprintAssignable, Category = Rive)
     FRiveReadyDelegate OnRiveReady;
 
+    // Render a test example for rive renderer
+    UFUNCTION(BlueprintCallable, Category = Rive)
+    void RenderRiveTest();
+
     UFUNCTION(BlueprintCallable, Category = Rive)
     void ResizeRenderTarget(int32 InSizeX, int32 InSizeY);
 
@@ -78,7 +83,17 @@ public:
     virtual void PostEditChangeChainProperty(
         FPropertyChangedChainEvent& PropertyChangedEvent) override;
 #endif
+protected:
+    void RiveReady(IRiveRenderer* InRiveRenderer);
+    void OnResourceInitialized_RenderThread(
+        FRHICommandListImmediate& RHICmdList,
+        FTextureRHIRef& NewResource);
 
+    /**
+     * Attribute(s)
+     */
+
+public:
     UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = Rive)
     FRiveDescriptor DefaultRiveDescriptor;
 
@@ -89,7 +104,7 @@ public:
     FIntPoint Size;
 
     UPROPERTY(BlueprintReadWrite, SkipSerialization, Transient, Category = Rive)
-    TArray<TObjectPtr<URiveArtboard>> Artboards;
+    TArray<URiveArtboard*> Artboards;
 
     UPROPERTY(BlueprintReadWrite, Transient, Category = Rive)
     TObjectPtr<URiveTexture> RiveTexture;
@@ -99,6 +114,10 @@ public:
 
 private:
     UFUNCTION()
+    void OnDefaultArtboardTickRender(float DeltaTime,
+                                     URiveArtboard* InArtboard);
+
+    UFUNCTION()
     TArray<FString> GetArtboardNamesForDropdown() const;
 
     UFUNCTION()
@@ -106,5 +125,5 @@ private:
 
     void InitializeAudioEngine();
     FDelegateHandle AudioEngineLambdaHandle;
-    TSharedPtr<FRiveRenderTarget> RiveRenderTarget;
+    TSharedPtr<IRiveRenderTarget> RiveRenderTarget;
 };

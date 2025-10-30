@@ -2,6 +2,7 @@
 
 #include "Rive/RiveTexture.h"
 
+#include "IRiveRenderer.h"
 #include "IRiveRendererModule.h"
 #include "Logs/RiveLog.h"
 #include "RenderingThread.h"
@@ -23,6 +24,18 @@ URiveTexture::URiveTexture()
 
 FTextureResource* URiveTexture::CreateResource()
 {
+    IRiveRenderer* RiveRenderer = IRiveRendererModule::Get().GetRenderer();
+    if (!RiveRenderer)
+    {
+        UE_LOG(LogRive,
+               Error,
+               TEXT("RiveRenderer is null, unable to create the "
+                    "RiveTextureResource"));
+        return nullptr;
+    }
+
+    FScopeLock Lock(&RiveRenderer->GetThreadDataCS());
+
     // UTexture::ReleaseResource() calls the delete
     CurrentResource = new FRiveTextureResource(this);
     SetResource(CurrentResource);
@@ -102,10 +115,19 @@ FVector2f URiveTexture::GetLocalCoordinatesFromExtents(
         SizeY / InExtents.GetSize().Y}; // Ratio should be the same for X and Y
     const FVector2f TextureRelativePosition = RelativePosition * Ratio;
 
-    const FMatrix Matrix = InArtboard->GetLastDrawTransformMatrix();
-    const FVector LocalCoordinate = Matrix.InverseTransformPosition(
-        FVector(TextureRelativePosition.X, TextureRelativePosition.Y, 0));
-    return FVector2f(LocalCoordinate.X, LocalCoordinate.Y);
+    if (InArtboard->OnGetLocalCoordinate.IsBound())
+    {
+        return InArtboard->OnGetLocalCoordinate.Execute(
+            InArtboard,
+            TextureRelativePosition);
+    }
+    else
+    {
+        const FMatrix Matrix = InArtboard->GetLastDrawTransformMatrix();
+        const FVector LocalCoordinate = Matrix.InverseTransformPosition(
+            FVector(TextureRelativePosition.X, TextureRelativePosition.Y, 0));
+        return FVector2f(LocalCoordinate.X, LocalCoordinate.Y);
+    }
 }
 
 void URiveTexture::InitializeResources() const
@@ -122,6 +144,9 @@ void URiveTexture::InitializeResources() const
 
     ENQUEUE_RENDER_COMMAND(FRiveTextureResourceeUpdateTextureReference)
     ([this](FRHICommandListImmediate& RHICmdList) {
+        IRiveRenderer* RiveRenderer = IRiveRendererModule::Get().GetRenderer();
+        FScopeLock Lock(&RiveRenderer->GetThreadDataCS());
+
         FTextureRHIRef RenderableTexture;
         const FString DebugName = GetName();
 

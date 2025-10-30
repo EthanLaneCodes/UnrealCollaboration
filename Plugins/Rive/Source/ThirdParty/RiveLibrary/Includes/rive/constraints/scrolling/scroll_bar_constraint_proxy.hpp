@@ -21,12 +21,9 @@ public:
     }
     ~ThumbDraggableProxy() {}
     bool isOpaque() override { return true; }
-    bool startDrag(Vec2D mousePosition, float timeStamp = 0) override;
-    bool drag(Vec2D mousePosition, float timeStamp = 0) override;
-    bool endDrag(Vec2D mousePosition, float timeStamp = 0) override
-    {
-        return true;
-    }
+    void startDrag(Vec2D mousePosition) override;
+    void drag(Vec2D mousePosition) override;
+    void endDrag(Vec2D mousePosition) override {}
 };
 
 class TrackDraggableProxy : public DraggableProxy
@@ -42,15 +39,9 @@ public:
     }
     ~TrackDraggableProxy() {}
     bool isOpaque() override { return true; }
-    bool startDrag(Vec2D mousePosition, float timeStamp = 0) override;
-    bool drag(Vec2D mousePosition, float timeStamp = 0) override
-    {
-        return true;
-    }
-    bool endDrag(Vec2D mousePosition, float timeStamp = 0) override
-    {
-        return true;
-    }
+    void startDrag(Vec2D mousePosition) override;
+    void drag(Vec2D mousePosition) override {}
+    void endDrag(Vec2D mousePosition) override {}
 };
 } // namespace rive
 

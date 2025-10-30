@@ -4,7 +4,7 @@
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
-#include "Logs/RiveLog.h"
+#include "Rive/RiveTextureObject.h"
 #include "UMG/RiveWidget.h"
 
 #define LOCTEXT_NAMESPACE "ARiveActor"
@@ -32,35 +32,29 @@ void ARiveWidgetActor::BeginPlay()
     ScreenUserWidget = CreateWidget(ActorWorld, RiveWidgetClass);
     if (!ScreenUserWidget)
     {
-        UE_LOG(LogRive, Error, TEXT("Failed to create ScreenUserWidget."));
         return;
     }
 
     ScreenUserWidget->AddToViewport();
 
-    RiveWidget = Cast<URiveWidget>(ScreenUserWidget);
-    if (IsValid(RiveWidget))
-    {
-        RiveWidget->SetAudioEngine(AudioEngine);
-    }
-    else if (UCanvasPanel* CanvasPanel =
-                 Cast<UCanvasPanel>(ScreenUserWidget->WidgetTree->RootWidget))
+    if (UCanvasPanel* CanvasPanel =
+            Cast<UCanvasPanel>(ScreenUserWidget->WidgetTree->RootWidget))
     {
         RiveWidget = Cast<URiveWidget>(CanvasPanel->GetChildAt(0));
         if (RiveWidget)
         {
-            RiveWidget->SetAudioEngine(AudioEngine);
-        }
-        else
-        {
-            UE_LOG(LogRive, Error, TEXT("Failed to find RiveWidget."));
+            RiveWidget->OnRiveReady.AddDynamic(
+                this,
+                &ARiveWidgetActor::OnRiveWidgetReady);
         }
     }
-    else
+}
+
+void ARiveWidgetActor::OnRiveWidgetReady()
+{
+    if (RiveWidget)
     {
-        UE_LOG(LogRive,
-               Error,
-               TEXT("Spawned Widget is not or does not contain a Rive Widget"));
+        RiveWidget->SetAudioEngine(AudioEngine);
     }
 }
 

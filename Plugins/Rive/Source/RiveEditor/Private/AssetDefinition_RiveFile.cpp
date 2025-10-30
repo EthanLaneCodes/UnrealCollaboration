@@ -11,7 +11,7 @@
 #include "Rive/RiveFile.h"
 
 #include "EditorFramework/AssetImportData.h"
-#include "Factories/RiveRenderTargetFactory.h"
+#include "Factories/RiveTextureObjectFactory.h"
 
 #define LOCTEXT_NAMESPACE "URiveFile_AssetDefinitionDefault"
 
@@ -33,7 +33,7 @@ void ExecuteCreateWidget(const FToolMenuContext& InContext)
     }
 }
 
-void ExecuteCreateRenderTarget(const FToolMenuContext& InContext)
+void ExecuteCreateTextureObject(const FToolMenuContext& InContext)
 {
     const UContentBrowserAssetContextMenuContext* CBContext =
         UContentBrowserAssetContextMenuContext::FindContextWithAssets(
@@ -45,7 +45,7 @@ void ExecuteCreateRenderTarget(const FToolMenuContext& InContext)
     {
         if (IsValid(RiveFile))
         {
-            FRiveRenderTargetFactory(RiveFile).Create();
+            FRiveTextureObjectFactory(RiveFile).Create();
         }
     }
 }
@@ -95,20 +95,20 @@ static FDelayedAutoRegisterHelper DelayedAutoRegister(
 
                                 {
                                     const TAttribute<FText> Label =
-                                        LOCTEXT("RiveFile_CreateRenderTarget",
-                                                "Create Rive Render Target");
+                                        LOCTEXT("RiveFile_CreateTextureObject",
+                                                "Create Rive Texture Object");
                                     const TAttribute<FText> ToolTip =
                                         LOCTEXT("RiveFile_CreateWidgetTooltip",
-                                                "Creates a new Rive Render "
-                                                "Target using this file.");
+                                                "Creates a new Rive Texture "
+                                                "Object using this file.");
                                     const FSlateIcon Icon = FSlateIcon(
                                         FAppStyle::GetAppStyleSetName(),
                                         "ClassIcon.Texture2D");
                                     const FToolMenuExecuteAction UIAction =
                                         FToolMenuExecuteAction::CreateStatic(
-                                            &ExecuteCreateRenderTarget);
+                                            &ExecuteCreateTextureObject);
                                     InSection.AddMenuEntry(
-                                        "RiveFile_CreateRenderTarget",
+                                        "RiveFile_CreateTextureObject",
                                         Label,
                                         ToolTip,
                                         Icon,

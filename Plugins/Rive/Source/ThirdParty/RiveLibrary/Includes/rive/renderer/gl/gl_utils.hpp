@@ -6,7 +6,6 @@
 
 #include "rive/renderer/gl/gles3.hpp"
 #include "rive/math/aabb.hpp"
-#include "rive/shapes/paint/image_sampler.hpp"
 #include <cstddef>
 #include <utility>
 
@@ -22,56 +21,33 @@ namespace glutils
 // renames from minify.py.)
 constexpr static char BASE_INSTANCE_UNIFORM_NAME[] = "_baseInstance";
 
-#ifdef DEBUG
-void PrintShaderCompilationErrors(GLuint shader);
-void PrintLinkProgramErrors(GLuint program);
-#endif
+void CompileAndAttachShader(GLuint program,
+                            GLenum type,
+                            const char* source,
+                            const GLCapabilities&);
 
-enum class DebugPrintErrorAndAbort
-{
-    no,
-    yes,
-};
+void CompileAndAttachShader(GLuint program,
+                            GLenum type,
+                            const char* defines[],
+                            size_t numDefines,
+                            const char* sources[],
+                            size_t numSources,
+                            const GLCapabilities&);
 
-void CompileAndAttachShader(
-    GLuint program,
-    GLenum type,
-    const char* source,
-    const GLCapabilities&,
-    DebugPrintErrorAndAbort = DebugPrintErrorAndAbort::yes);
+[[nodiscard]] GLuint CompileShader(GLuint type,
+                                   const char* source,
+                                   const GLCapabilities&);
 
-void CompileAndAttachShader(
-    GLuint program,
-    GLenum type,
-    const char* defines[],
-    size_t numDefines,
-    const char* sources[],
-    size_t numSources,
-    const GLCapabilities&,
-    DebugPrintErrorAndAbort = DebugPrintErrorAndAbort::yes);
+[[nodiscard]] GLuint CompileShader(GLuint type,
+                                   const char* defines[],
+                                   size_t numDefines,
+                                   const char* sources[],
+                                   size_t numSources,
+                                   const GLCapabilities&);
 
-[[nodiscard]] GLuint CompileShader(
-    GLuint type,
-    const char* source,
-    const GLCapabilities&,
-    DebugPrintErrorAndAbort = DebugPrintErrorAndAbort::yes);
+[[nodiscard]] GLuint CompileRawGLSL(GLenum shaderType, const char* rawGLSL);
 
-[[nodiscard]] GLuint CompileShader(
-    GLuint type,
-    const char* defines[],
-    size_t numDefines,
-    const char* sources[],
-    size_t numSources,
-    const GLCapabilities&,
-    DebugPrintErrorAndAbort = DebugPrintErrorAndAbort::yes);
-
-[[nodiscard]] GLuint CompileRawGLSL(
-    GLenum shaderType,
-    const char* rawGLSL,
-    DebugPrintErrorAndAbort = DebugPrintErrorAndAbort::yes);
-
-void LinkProgram(GLuint program,
-                 DebugPrintErrorAndAbort = DebugPrintErrorAndAbort::yes);
+void LinkProgram(GLuint program);
 
 class GLObject
 {
@@ -110,7 +86,6 @@ public:
     ~Texture() { reset(0); }
 
     static Texture Zero() { return Texture(0); }
-    static Texture Adopt(GLuint id) { return Texture(id); }
 
 private:
     explicit Texture(GLuint adoptedID) : GLObject(adoptedID) {}
@@ -261,7 +236,6 @@ private:
 };
 
 void SetTexture2DSamplingParams(GLenum minFilter, GLenum magFilter);
-void SetTexture2DSamplingParams(rive::ImageSampler);
 
 void BlitFramebuffer(rive::IAABB bounds,
                      uint32_t renderTargetHeight,

@@ -118,6 +118,7 @@ protected:
     ShapePaintPath m_localPath;
     ShapePaintPath m_worldPath;
     DrawableProxy m_proxy;
+    bool m_displayHidden = false;
 
     Artboard* getArtboard() override { return artboard(); }
     LayoutAnimationData* currentAnimationData();
@@ -135,14 +136,13 @@ protected:
         }
         return nullptr;
     }
-    bool isCollapsed() const override;
+    bool isDisplayHidden() const;
     void propagateCollapse(bool collapse);
     bool collapse(bool value) override;
     float computedLocalX() override { return m_layout.left(); };
     float computedLocalY() override { return m_layout.top(); };
     float computedWidth() override { return m_layout.width(); };
     float computedHeight() override { return m_layout.height(); };
-    void calculateLayoutInternal(float availableWidth, float availableHeight);
 
 private:
     float m_widthOverride = NAN;
@@ -160,7 +160,8 @@ private:
 protected:
     void propagateSizeToChildren(ContainerComponent* component);
     bool applyInterpolation(float elapsedSeconds, bool animate = true);
-    bool styleDisplayHidden() const;
+    void calculateLayout();
+    bool styleDisplayHidden();
 #endif
 
 public:
@@ -177,9 +178,6 @@ public:
     void drawProxy(Renderer* renderer) override;
     bool isProxyHidden() override { return isHidden(); }
     Core* hitTest(HitInfo*, const Mat2D&) override;
-    bool hitTestPoint(const Vec2D& position,
-                      bool skipOnUnclipped,
-                      bool isPrimaryHit) override;
     DrawableProxy* proxy() { return &m_proxy; };
     virtual void updateRenderPath();
     void update(ComponentDirt value) override;
@@ -191,13 +189,11 @@ public:
                               m_layout.width(),
                               m_layout.height());
     }
-    size_t numLayoutNodes() override { return 1; }
-    AABB constraintBounds() const override { return localBounds(); }
     AABB localBounds() const override
     {
         return AABB::fromLTWH(0.0f, 0.0f, m_layout.width(), m_layout.height());
     }
-    virtual AABB worldBounds() const
+    AABB worldBounds() const
     {
         auto transform = worldTransform();
         return AABB::fromLTWH(transform[4],
@@ -226,9 +222,6 @@ public:
     float paddingRight() { return m_layoutPadding.right(); }
     float paddingTop() { return m_layoutPadding.top(); }
     float paddingBottom() { return m_layoutPadding.bottom(); }
-
-    float gapHorizontal();
-    float gapVertical();
 
     // We provide a way for nested artboards (or other objects) to override this
     // layout's width/height and unit values.

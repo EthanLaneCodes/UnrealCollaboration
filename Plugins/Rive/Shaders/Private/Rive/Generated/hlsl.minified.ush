@@ -37,7 +37,6 @@
 #define float2x2  float2x2
 #define half3x3  half3x3
 #define half2x3  half2x3
-#define half4x4  half4x4
 #endif
 
 typedef float3 packed_float3;
@@ -115,9 +114,6 @@ typedef float3 packed_float3;
 #define FRAG_TEXTURE_BLOCK_END
 #endif
 
-#define DYNAMIC_SAMPLER_BLOCK_BEGIN
-#define DYNAMIC_SAMPLER_BLOCK_END
-
 #define TEXTURE_RGBA32UI(SET, IDX, NAME)                                        \
     uniform Texture2D<uint4> NAME : register(t##IDX)
 #define TEXTURE_RGBA32F(SET, IDX, NAME)                                         \
@@ -131,18 +127,16 @@ typedef float3 packed_float3;
 
 // SAMPLER_LINEAR and SAMPLER_MIPMAP are the same because in d3d11, sampler
 // parameters are defined at the API level.
-#define SAMPLER(IDX, NAME)  SamplerState NAME : register(s##IDX);
+#define SAMPLER(TEXTURE_IDX, NAME)                                              \
+    SamplerState NAME : register(s##TEXTURE_IDX);
 #define SAMPLER_LINEAR  SAMPLER
 #define SAMPLER_MIPMAP  SAMPLER
-#define SAMPLER_DYNAMIC(SET, IDX, NAME)  SAMPLER(IDX, NAME)
 
 #define TEXEL_FETCH(NAME, COORD)  NAME[COORD]
 #define TEXTURE_SAMPLE(NAME, SAMPLER_NAME, COORD)                               \
     NAME.Sample(SAMPLER_NAME, COORD)
 #define TEXTURE_SAMPLE_LOD(NAME, SAMPLER_NAME, COORD, LOD)                      \
     NAME.SampleLevel(SAMPLER_NAME, COORD, LOD)
-#define TEXTURE_SAMPLE_LODBIAS(NAME, SAMPLER_NAME, COORD, LODBIAS)              \
-    NAME.SampleBias(SAMPLER_NAME, COORD, LODBIAS)
 #define TEXTURE_SAMPLE_GRAD(NAME, SAMPLER_NAME, COORD, DDX, DDY)                \
     NAME.SampleGrad(SAMPLER_NAME, COORD, DDX, DDY)
 #define TEXTURE_GATHER(NAME, SAMPLER_NAME, COORD, TEXTURE_INVERSE_SIZE)         \
@@ -155,12 +149,6 @@ typedef float3 packed_float3;
                                     LOD)                                        \
     NAME.SampleLevel(SAMPLER_NAME, float2(X, ARRAY_INDEX), LOD)
 
-#define TEXTURE_SAMPLE_DYNAMIC(TEXTURE, SAMPLER_NAME, COORD)                    \
-    TEXTURE_SAMPLE(TEXTURE, SAMPLER_NAME, COORD)
-#define TEXTURE_SAMPLE_DYNAMIC_LOD(TEXTURE, SAMPLER_NAME, COORD, LOD)           \
-    TEXTURE_SAMPLE_LOD(TEXTURE, SAMPLER_NAME, COORD, LOD)
-#define TEXTURE_SAMPLE_DYNAMIC_LODBIAS(TEXTURE, SAMPLER_NAME, COORD, LODBIAS)   \
-    TEXTURE_SAMPLE_LODBIAS(TEXTURE, SAMPLER_NAME, COORD, LODBIAS)
 #define PLS_INTERLOCK_BEGIN
 #define PLS_INTERLOCK_END
 
@@ -233,9 +221,9 @@ INLINE uint pls_atomic_add(PLS_TEX2D<uint> plane, int2 _plsCoord, uint x)
         uint NAME##_pad1;                                                      \
         uint NAME##_pad2;                                                      \
     }                                                                          \
-    Varyings main(Attrs attrs,                                                 \
-                  uint _vertexID : SV_VertexID,                               \
-                  uint _instanceIDWithoutBase : SV_InstanceID)                \
+    Varyings main(Attrs attrs, uint _vertexID                                  \
+                  : SV_VertexID, uint _instanceIDWithoutBase                  \
+                  : SV_InstanceID)                                            \
     {                                                                          \
         uint _instanceID = _instanceIDWithoutBase + baseInstance;              \
         Varyings _varyings;
@@ -252,9 +240,8 @@ INLINE uint pls_atomic_add(PLS_TEX2D<uint> plane, int2 _plsCoord, uint x)
                                UVAttr,                                         \
                                uv,                                             \
                                _vertexID)                                       \
-    Varyings main(PositionAttr position,                                       \
-                  UVAttr uv,                                                   \
-                  uint _vertexID : SV_VertexID)                               \
+    Varyings main(PositionAttr position, UVAttr uv, uint _vertexID             \
+                  : SV_VertexID)                                              \
     {                                                                          \
         Varyings _varyings;                                                    \
         float4 _pos;

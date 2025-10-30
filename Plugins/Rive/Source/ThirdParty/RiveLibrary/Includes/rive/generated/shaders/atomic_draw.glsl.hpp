@@ -1,6 +1,6 @@
 #pragma once
 
-#include "atomic_draw.glsl.exports.h"
+#include "atomic_draw.exports.h"
 
 namespace rive {
 namespace gpu {
@@ -511,14 +511,6 @@ INLINE void resolve_paint(uint pathID,
 #ifndef _EXPORTED_PLS_BLEND_SRC_OVER
     fragColorOut.xyz *= fragColorOut.w;
 #endif
-
-    // Certain platforms give us less control of the format of what we are
-    // rendering too. Specifically, we are auto converted from linear -> sRGB on
-    // render target writes in unreal. In those cases we made need to end up in
-    // linear color space
-#ifdef _EXPORTED_NEEDS_GAMMA_CORRECTION
-    fragColorOut = gamma_to_linear(fragColorOut);
-#endif
 }
 
 #if !defined(_EXPORTED_FIXED_FUNCTION_COLOR_OUTPUT) &&                                  \
@@ -756,8 +748,7 @@ ATOMIC_PLS_MAIN_WITH_IMAGE_UNIFORMS(_EXPORTED_drawFragmentMain)
     // @imageTexture binding is liable to change, and furthermore in the case of
     // imageMeshes, we can't calculate UV coordinates based on fragment
     // position.
-    half4 imageColor =
-        TEXTURE_SAMPLE_DYNAMIC(_EXPORTED_imageTexture, imageSampler, v_texCoord);
+    half4 imageColor = TEXTURE_SAMPLE(_EXPORTED_imageTexture, imageSampler, v_texCoord);
     half imageCoverage = 1.;
 #ifdef _EXPORTED_DRAW_IMAGE_RECT
     imageCoverage = min(v_edgeCoverage, imageCoverage);

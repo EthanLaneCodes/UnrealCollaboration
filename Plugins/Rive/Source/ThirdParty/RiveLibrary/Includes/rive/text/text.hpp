@@ -6,12 +6,9 @@
 #include "rive/text_engine.hpp"
 #include "rive/shapes/shape_paint_path.hpp"
 #include "rive/simple_array.hpp"
-#include "rive/text/glyph_lookup.hpp"
-#include "rive/text/text_interface.hpp"
-
 #include <unordered_map>
 #include <vector>
-
+#include "rive/text/glyph_lookup.hpp"
 namespace rive
 {
 
@@ -56,21 +53,17 @@ enum class LineIter : uint8_t
     yOutOfBounds
 };
 
-class TextStylePaint;
-class Text : public TextBase, public TextInterface
+class TextStyle;
+class Text : public TextBase
 {
 public:
-    // Implements TextInterface
-    void markShapeDirty() override;
-    void markPaintDirty() override;
-
     void draw(Renderer* renderer) override;
     Core* hitTest(HitInfo*, const Mat2D&) override;
     void addRun(TextValueRun* run);
     void addModifierGroup(TextModifierGroup* group);
-    void markShapeDirty(bool sendToLayout);
+    void markShapeDirty(bool sendToLayout = true);
     void modifierShapeDirty();
-
+    void markPaintDirty();
     void update(ComponentDirt value) override;
     void onDirty(ComponentDirt value) override;
     Mat2D m_transform;
@@ -89,10 +82,9 @@ public:
     TextAlign align() const;
     void overflow(TextOverflow value) { return overflowValue((uint32_t)value); }
     void buildRenderStyles();
-    const TextStylePaint* styleFromShaperId(uint16_t id) const;
+    const TextStyle* styleFromShaperId(uint16_t id) const;
     bool modifierRangesNeedShape() const;
     AABB localBounds() const override;
-    AABB constraintBounds() const override { return localBounds(); }
     void originXChanged() override;
     void originYChanged() override;
 
@@ -121,6 +113,10 @@ public:
         float width,
         TextAlign align,
         TextWrap wrap);
+#endif
+
+#ifdef WITH_RIVE_LAYOUT
+    void markLayoutNodeDirty();
 #endif
 
     bool haveModifiers() const
@@ -161,7 +157,7 @@ private:
 #ifdef WITH_RIVE_TEXT
     void updateOriginWorldTransform();
     std::vector<TextValueRun*> m_runs;
-    std::vector<TextStylePaint*> m_renderStyles;
+    std::vector<TextStyle*> m_renderStyles;
     SimpleArray<Paragraph> m_shape;
     SimpleArray<Paragraph> m_modifierShape;
     SimpleArray<SimpleArray<GlyphLine>> m_lines;

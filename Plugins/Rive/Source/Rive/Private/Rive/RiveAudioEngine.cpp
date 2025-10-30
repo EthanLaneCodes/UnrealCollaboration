@@ -8,7 +8,12 @@ void URiveAudioEngine::BeginPlay()
 {
     if (FAudioDevice* AudioDevice = GetAudioDevice())
     {
-        NativeAudioEnginePtr = nullptr;
+        // Make our Rive audio engine
+        if (NativeAudioEnginePtr.get() != nullptr)
+        {
+            NativeAudioEnginePtr->unref();
+            NativeAudioEnginePtr = nullptr;
+        }
         NumChannels = 2;
 
         NativeAudioEnginePtr = rive::rcp(

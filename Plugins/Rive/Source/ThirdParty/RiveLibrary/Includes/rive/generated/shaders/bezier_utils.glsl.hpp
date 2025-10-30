@@ -1,6 +1,6 @@
 #pragma once
 
-#include "bezier_utils.glsl.exports.h"
+#include "bezier_utils.exports.h"
 
 namespace rive {
 namespace gpu {

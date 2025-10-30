@@ -62,4 +62,7 @@ protected:
     TObjectPtr<URiveAudioEngine> AudioEngine;
 
     TObjectPtr<URiveWidget> RiveWidget;
+
+    UFUNCTION()
+    void OnRiveWidgetReady();
 };

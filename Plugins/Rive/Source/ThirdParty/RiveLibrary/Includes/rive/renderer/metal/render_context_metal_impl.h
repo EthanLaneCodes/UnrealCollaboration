@@ -5,8 +5,7 @@
 #pragma once
 
 #include "rive/renderer/render_context_helper_impl.hpp"
-#include "rive/shapes/paint/image_sampler.hpp"
-#include <unordered_map>
+#include <map>
 #include <mutex>
 
 #ifndef RIVE_OBJC_NOP
@@ -94,18 +93,12 @@ public:
         // Wait for shaders to compile inline with rendering (causing jank),
         // instead of compiling asynchronously in a background thread.
         // (Primarily for testing.)
-        ShaderCompilationMode shaderCompilationMode =
-            ShaderCompilationMode::standard;
+        bool synchronousShaderCompilations = false;
 
         // (macOS only -- ignored on iOS). Override
         // m_platformFeatures.supportsRasterOrdering to false, forcing us to
         // always render in atomic mode.
         bool disableFramebufferReads = false;
-
-#ifdef WITH_RIVE_TOOLS
-        SynthesizedFailureType synthesizedFailureType =
-            SynthesizedFailureType::none;
-#endif
     };
 
     static std::unique_ptr<RenderContext> MakeContext(id<MTLDevice>,
@@ -200,7 +193,7 @@ private:
     // the given features.
     const DrawPipeline* findCompatibleDrawPipeline(gpu::DrawType,
                                                    gpu::ShaderFeatures,
-                                                   const gpu::FlushDescriptor&,
+                                                   gpu::InterlockMode,
                                                    gpu::ShaderMiscFlags);
 
     void flush(const FlushDescriptor&) override;
@@ -235,9 +228,7 @@ private:
     std::unique_ptr<AtlasPipeline> m_atlasStrokePipeline;
     id<MTLTexture> m_atlasTexture = nullptr;
 
-    id<MTLSamplerState> m_imageSamplers[ImageSampler::MAX_SAMPLER_PERMUTATIONS];
-
-    std::unordered_map<uint32_t, std::unique_ptr<DrawPipeline>> m_drawPipelines;
+    std::map<uint32_t, std::unique_ptr<DrawPipeline>> m_drawPipelines;
 
     // Vertex/index buffers for drawing path patches.
     id<MTLBuffer> m_pathPatchVertexBuffer;

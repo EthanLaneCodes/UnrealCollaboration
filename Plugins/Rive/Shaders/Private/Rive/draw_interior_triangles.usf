@@ -1,4 +1,4 @@
-#define USING_PLS_STORAGE_TEXTURES 1
+#define PLS_IMPL_SUBPASS_LOAD
 #define OPTIONALLY_FLAT flat
 #define DRAW_INTERIOR_TRIANGLES
 
@@ -13,5 +13,4 @@
 #include "Generated/common.minified.ush"
 #include "Generated/draw_path_common.minified.ush"
 #include "Generated/advanced_blend.minified.ush"
-#include "Generated/draw_path.minified.vert.ush"
-#include "Generated/draw_raster_order_path.minified.frag.ush"
+#include "Generated/draw_path.minified.ush"

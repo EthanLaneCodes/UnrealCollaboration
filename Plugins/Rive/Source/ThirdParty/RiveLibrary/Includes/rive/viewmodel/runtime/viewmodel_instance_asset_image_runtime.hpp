@@ -18,11 +18,6 @@ public:
         ViewModelInstanceValueRuntime(viewModelInstance)
     {}
     void value(RenderImage* renderImage);
-    const DataType dataType() override { return DataType::assetImage; }
-
-#ifdef TESTING
-    RenderImage* testing_value();
-#endif
 };
 } // namespace rive
 #endif

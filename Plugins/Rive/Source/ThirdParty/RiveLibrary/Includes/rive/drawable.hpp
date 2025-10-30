@@ -32,9 +32,6 @@ public:
     ClipResult applyClip(Renderer* renderer) const;
     virtual void draw(Renderer* renderer) = 0;
     virtual Core* hitTest(HitInfo*, const Mat2D&) = 0;
-    bool hitTestPoint(const Vec2D& position,
-                      bool skipOnUnclipped,
-                      bool isPrimaryHit) override;
     void addClippingShape(ClippingShape* shape);
     inline const std::vector<ClippingShape*>& clippingShapes() const
     {
@@ -48,7 +45,7 @@ public:
                hasDirt(ComponentDirt::Collapsed);
     }
 
-    virtual bool isTargetOpaque()
+    inline bool isTargetOpaque() const
     {
         return (static_cast<DrawableFlag>(drawableFlags()) &
                 DrawableFlag::Opaque) == DrawableFlag::Opaque;
@@ -87,7 +84,7 @@ public:
 
     Drawable* hittableComponent() override;
 
-    bool isTargetOpaque() override;
+    bool isTargetOpaque();
 
     Core* hitTest(HitInfo*, const Mat2D&) override { return nullptr; }
 

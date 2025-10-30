@@ -11,12 +11,12 @@ private:
     uint32_t m_value = 0;
 
 public:
-    DataValueInteger(uint32_t value) : m_value(value) {};
-    DataValueInteger() {};
-    static const DataType typeKey = DataType::integer;
+    DataValueInteger(uint32_t value) : m_value(value){};
+    DataValueInteger(){};
+    static const DataType typeKey = DataType::trigger;
     bool isTypeOf(DataType typeKey) const override
     {
-        return typeKey == DataType::integer;
+        return typeKey == DataType::trigger;
     }
     uint32_t value() { return m_value; };
     void value(uint32_t value) { m_value = value; };

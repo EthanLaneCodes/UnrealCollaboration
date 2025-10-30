@@ -36,11 +36,9 @@ public class RiveEditor : ModuleRules
                 "UMGEditor", 
                 "SettingsEditor",
                 "EditorStyle",
+                "UnrealEd",
                 "DeveloperSettings",
-                "RiveRenderer",
-                "RHI",
-                "RenderCore",
-                "BlueprintGraph"
+                "RiveRenderer"
             }
         );
 

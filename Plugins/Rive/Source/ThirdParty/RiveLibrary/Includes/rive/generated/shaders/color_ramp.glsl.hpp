@@ -1,6 +1,6 @@
 #pragma once
 
-#include "color_ramp.glsl.exports.h"
+#include "color_ramp.exports.h"
 
 namespace rive {
 namespace gpu {
@@ -93,9 +93,6 @@ VERTEX_MAIN(_EXPORTED_colorRampVertexMain, Attrs, attrs, _vertexID, _instanceID)
     float4 pos = pixel_coord_to_clip_coord(float2(x, y),
                                            2.,
                                            uniforms.gradInverseViewportY);
-#ifdef _EXPORTED_POST_INVERT_Y
-    pos.y = -pos.y;
-#endif
 
     VARYING_PACK(v_rampColor);
     EMIT_VERTEX(pos);

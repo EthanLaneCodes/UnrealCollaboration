@@ -10,7 +10,8 @@ class ViewModelInstanceTrigger;
 typedef void (*ViewModelTriggerChanged)(ViewModelInstanceTrigger* vmi,
                                         uint32_t value);
 #endif
-class ViewModelInstanceTrigger : public ViewModelInstanceTriggerBase
+class ViewModelInstanceTrigger : public ViewModelInstanceTriggerBase,
+                                 public Triggerable
 {
 protected:
     void propertyValueChanged() override;

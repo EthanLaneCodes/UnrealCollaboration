@@ -1,7 +1,6 @@
 /*
  * Copyright 2025 Rive
  */
-#include "rive/renderer/async_pipeline_manager.hpp"
 #include "rive/renderer/d3d/d3d.hpp"
 #include "rive/renderer/gpu.hpp"
 
@@ -12,119 +11,194 @@ namespace rive::gpu
 {
 namespace d3d_utils
 {
-ComPtr<ID3DBlob> compile_shader_to_blob(DrawType drawType,
-                                        ShaderFeatures shaderFeatures,
-                                        InterlockMode interlockMode,
-                                        ShaderMiscFlags shaderMiscFlags,
-                                        const D3DCapabilities& d3dCapabilities,
-                                        const char* target);
+// generates a shader using ostringstream
+std::string build_shader(DrawType drawType,
+                         ShaderFeatures shaderFeatures,
+                         InterlockMode interlockMode,
+                         ShaderMiscFlags shaderMiscFlags,
+                         const D3DCapabilities& d3dCapabilities);
+// compile shader to source using "main" as an entry point
+ComPtr<ID3DBlob> compile_vertex_source_to_blob(const std::string& source,
+                                               const char* target);
+// compile shader to source using "main" as an entry point
+ComPtr<ID3DBlob> compile_pixel_source_to_blob(const std::string& source,
+                                              const char* target);
 } // namespace d3d_utils
 
 // Handles managing and compiling shaders.
 // Has hooks to allow managing pipelines for d3d12
-template <typename PipelineType, typename DeviceType>
-class D3DPipelineManager : public AsyncPipelineManager<PipelineType>
+// Will also manages threading for just in time compiling of shaders once
+// thats in
+template <typename VetexShaderType,
+          typename PixelShaderType,
+          typename DeviceType>
+class D3DPipelineManager
 {
-    using Super = AsyncPipelineManager<PipelineType>;
-
 public:
-    using VertexShaderType = typename PipelineType::VertexShaderType;
-    using FragmentShaderType = typename PipelineType::FragmentShaderType;
+    // everything needed to compile a vertex + pixel shader combo
+    struct ShaderCompileRequest
+    {
+        DrawType drawType;
+        ShaderFeatures shaderFeatures;
+        InterlockMode interlockMode;
+        ShaderMiscFlags shaderMiscFlags;
+        const D3DCapabilities& d3dCapabilities;
+    };
 
-    const D3DCapabilities d3dCapabilities() const { return m_d3dCapabilities; }
-    DeviceType* device() const { return m_device.Get(); }
+    // shader compiler result including keys for m_drawVertexShaders and
+    // m_drawPixelShaders
+    struct ShaderCompileResult
+    {
+        uint32_t vertexShaderKey;
+        uint32_t pixelShaderKey;
+        struct VertexResult
+        {
+            bool hasResult = false;
+            VetexShaderType vertexShaderResult;
+        } vertexResult;
+        struct PixelResult
+        {
+            bool hasResult = false;
+            PixelShaderType pixelShaderResult;
+        } pixelResult;
+        // needed for d3d12
+        void* resultData = nullptr;
+    };
 
     D3DPipelineManager(ComPtr<DeviceType> device,
                        const D3DCapabilities& capabilities,
-                       ShaderCompilationMode shaderCompilationMode,
                        const char* vertexTarget,
                        const char* pixelTarget) :
-        Super(shaderCompilationMode),
-        m_device(device),
+        m_device(std::move(device)),
         m_d3dCapabilities(capabilities),
         m_vertexTarget(vertexTarget),
         m_pixelTarget(pixelTarget)
     {}
-    virtual ~D3DPipelineManager() = default;
+
+    const D3DCapabilities d3dCapabilities() const { return m_d3dCapabilities; }
+
+    DeviceType* device() const { return m_device.Get(); }
 
 protected:
-    using PipelineProps = typename Super::PipelineProps;
+    // called when shaderCompileWorker finished compiling the source shader to
+    // blobs and now we need to convert that to the platform specific shader
+    // tpes i.e. ID3D11Vertex/PixelShader for 11 and ID3D12PilineState for 12.
+    // note: this could be called on a background thread
+    virtual void compileBlobToFinalType(const ShaderCompileRequest&,
+                                        ComPtr<ID3DBlob> vertexShader,
+                                        ComPtr<ID3DBlob> pixelShader,
+                                        ShaderCompileResult*) = 0;
 
-    virtual std::unique_ptr<FragmentShaderType>
-    compilePixelShaderBlobToFinalType(ComPtr<ID3DBlob> blob) = 0;
-
-    virtual std::unique_ptr<VertexShaderType>
-    compileVertexShaderBlobToFinalType(DrawType drawType,
-                                       ComPtr<ID3DBlob> blob) = 0;
-
-    virtual std::unique_ptr<PipelineType> linkPipeline(
-        const PipelineProps& props,
-        const VertexShaderType& vs,
-        const FragmentShaderType& ps) = 0;
-
-    virtual PipelineStatus getPipelineStatus(
-        const PipelineType& pipeline) const override final
+    // get shaders with given compiler request. returns true and sets
+    // outShaderResult on succes, returns false and outShaderResult is undefined
+    // on failure
+    bool getShader(const ShaderCompileRequest& shaderCompileRequest,
+                   ShaderCompileResult* outShaderResult)
     {
-        // D3D pipelines never exist in the waiting state, they spring to
-        // life completed (or errored)
-        return pipeline.succeeded() ? PipelineStatus::ready
-                                    : PipelineStatus::errored;
+        // dont pass nullptr here
+        assert(outShaderResult);
+
+        outShaderResult->vertexShaderKey = gpu::ShaderUniqueKey(
+            shaderCompileRequest.drawType,
+            shaderCompileRequest.shaderFeatures & kVertexShaderFeaturesMask,
+            shaderCompileRequest.interlockMode,
+            gpu::ShaderMiscFlags::none);
+
+        outShaderResult->pixelShaderKey =
+            ShaderUniqueKey(shaderCompileRequest.drawType,
+                            shaderCompileRequest.shaderFeatures,
+                            shaderCompileRequest.interlockMode,
+                            shaderCompileRequest.shaderMiscFlags);
+
+        auto vertexEntry =
+            m_drawVertexShaders.find(outShaderResult->vertexShaderKey);
+
+        auto pixelEntry =
+            m_drawPixelShaders.find(outShaderResult->pixelShaderKey);
+
+        if (vertexEntry != m_drawVertexShaders.end())
+        {
+            outShaderResult->vertexResult.hasResult = true;
+            outShaderResult->vertexResult.vertexShaderResult =
+                vertexEntry->second;
+        }
+
+        if (pixelEntry != m_drawPixelShaders.end())
+        {
+            outShaderResult->pixelResult.hasResult = true;
+            outShaderResult->pixelResult.pixelShaderResult = pixelEntry->second;
+        }
+
+        if (vertexEntry == m_drawVertexShaders.end() ||
+            pixelEntry == m_drawPixelShaders.end())
+        {
+            if (!shaderCompileWorker(shaderCompileRequest, outShaderResult))
+            {
+                // eventually this means background shader compile happening, so
+                // we would set uber shader here and return
+                RIVE_UNREACHABLE();
+            }
+            if (vertexEntry == m_drawVertexShaders.end())
+            {
+                assert(outShaderResult->vertexResult.hasResult);
+                m_drawVertexShaders.insert(
+                    {outShaderResult->vertexShaderKey,
+                     outShaderResult->vertexResult.vertexShaderResult});
+            }
+
+            if (pixelEntry == m_drawPixelShaders.end())
+            {
+                assert(outShaderResult->pixelResult.hasResult);
+                m_drawPixelShaders.insert(
+                    {outShaderResult->pixelShaderKey,
+                     outShaderResult->pixelResult.pixelShaderResult});
+            }
+        }
+
+        return true;
     }
 
 private:
-    virtual std::unique_ptr<VertexShaderType> createVertexShader(
-        DrawType drawType,
-        ShaderFeatures shaderFeatures,
-        InterlockMode interlockMode) override
+    // build shader (currnetly runs synchronously but will be async eventually)
+    bool shaderCompileWorker(const ShaderCompileRequest& compileRequest,
+                             ShaderCompileResult* outShaderResult)
     {
-        auto blob = d3d_utils::compile_shader_to_blob(drawType,
-                                                      shaderFeatures,
-                                                      interlockMode,
-                                                      ShaderMiscFlags::none,
-                                                      m_d3dCapabilities,
-                                                      m_vertexTarget);
+        assert(outShaderResult->vertexResult.hasResult == false ||
+               outShaderResult->pixelResult.hasResult == false);
 
-        return compileVertexShaderBlobToFinalType(drawType, blob.Get());
-    }
+        auto shader = d3d_utils::build_shader(compileRequest.drawType,
+                                              compileRequest.shaderFeatures,
+                                              compileRequest.interlockMode,
+                                              compileRequest.shaderMiscFlags,
+                                              compileRequest.d3dCapabilities);
 
-    virtual std::unique_ptr<FragmentShaderType> createFragmentShader(
-        DrawType drawType,
-        ShaderFeatures shaderFeatures,
-        InterlockMode interlockMode,
-        ShaderMiscFlags miscFlags) override
-    {
-        auto blob = d3d_utils::compile_shader_to_blob(drawType,
-                                                      shaderFeatures,
-                                                      interlockMode,
-                                                      miscFlags,
-                                                      m_d3dCapabilities,
-                                                      m_pixelTarget);
+        ComPtr<ID3DBlob> vertexShader;
+        ComPtr<ID3DBlob> pixelShader;
 
-        return compilePixelShaderBlobToFinalType(blob.Get());
-    }
-
-    virtual std::unique_ptr<PipelineType> createPipeline(
-        PipelineCreateType createType,
-        uint32_t key,
-        const PipelineProps& props) override final
-    {
-        if (createType == PipelineCreateType::async)
+        if (!outShaderResult->vertexResult.hasResult)
         {
-            this->queueBackgroundJob(key, props);
-            return nullptr;
+            vertexShader =
+                d3d_utils::compile_vertex_source_to_blob(shader,
+                                                         m_vertexTarget);
         }
 
-        auto& vs = this->getVertexShaderSynchronous(props.drawType,
-                                                    props.shaderFeatures,
-                                                    props.interlockMode);
+        if (!outShaderResult->pixelResult.hasResult)
+        {
+            pixelShader =
+                d3d_utils::compile_pixel_source_to_blob(shader, m_pixelTarget);
+        }
 
-        auto& ps = this->getFragmentShaderSynchronous(props.drawType,
-                                                      props.shaderFeatures,
-                                                      props.interlockMode,
-                                                      props.shaderMiscFlags);
+        compileBlobToFinalType(compileRequest,
+                               vertexShader,
+                               pixelShader,
+                               outShaderResult);
 
-        return linkPipeline(props, vs, ps);
+        return true;
     }
+
+private:
+    std::unordered_map<uint32_t, VetexShaderType> m_drawVertexShaders;
+    std::unordered_map<uint32_t, PixelShaderType> m_drawPixelShaders;
 
     ComPtr<DeviceType> m_device;
     const D3DCapabilities m_d3dCapabilities;
